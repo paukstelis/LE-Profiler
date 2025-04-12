@@ -1,0 +1,4 @@
+include README.md
+recursive-include octoprint_LaserProfile/templates *
+recursive-include octoprint_LaserProfile/translations *
+recursive-include octoprint_LaserProfile/static *

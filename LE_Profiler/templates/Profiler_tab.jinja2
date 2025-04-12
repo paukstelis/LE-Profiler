@@ -1,0 +1,174 @@
+<!-- laser_profile_tab.jinja2 -->
+
+<div id="laserprofile_plugin_main" class="row-fluid">
+    <div>
+        <label for="modeSelect">Mode:</label>
+        <select id="modeSelect" data-bind="value: mode">
+            <option value="none"></option>
+            <option value="laser">Laser</option>
+            <option value="flute">Flute</option>
+            <option value="wrap">Wrap</option>
+        </select>
+    </div>
+    
+    <div>    
+        <button id="reverseZButton">Reverse Profile</button>
+    </div>
+
+    <div id="profilePlot" style="width: 100%; height: 500px;"></div>
+    <div style="width: 300px; float: left;">
+        <div>
+            <label for="scan_file_select">Select Scan File:</label>
+                <select id="scan_file_select">
+                    <option value="">Loading...</option>
+                </select>        
+        </div>
+
+        <div class="wrap" id="wrapFileSelectContainer" style="display: none;">
+            <label for="wrapFileSelect">Wrap Gcode:</label>
+            <select id="wrapFileSelect">
+                <option value="">Loading...</option>
+            </select>
+        </div>
+
+        <div class="wrap">
+            <label for="refdiam">Diameter at reference (mm):</label>
+            <input id="refdiam" type="number" value="0" step="any" data-bind="value: refdiam">  
+        </div>   
+
+        <div>
+            <label for="toollength">Rotation center to surface (mm):</label>
+            <input id="toollength" type="number" value="1" step="any" data-bind="value: tool_length">
+            
+        </div>
+        
+        <div class="all">
+            <label for="segment">Segments:</label>
+            <input id="segment" type="number" value="1" step="any" data-bind="value: segments">
+                
+        </div>
+
+        <div class="zscan">
+            <label>Tool direction:</label>
+            <select id="tooldirection" data-bind="value: side">
+                <option value="none"></option>
+                <option value="front">Front (X+)</option>
+                <option value="back">Back (X-)</option>
+            </select>
+        </div>
+            
+        <div class="laser flute">
+            <label for="feed">Nominal Feedrate (mm/min):</label>
+            <input id="feed" type="number" value="1000" step="any" data-bind="value: feed">            
+        </div>
+
+        <div id="laserPower" class="laser">
+            <label for="power">Laser Power:
+            <input id="power" type="number" value="1000" step="any" data-bind="value: power">
+            </label>
+        </div>
+
+        <div class="flute">
+            <label for="depth">Total Depth (mm):
+            <input id="depth" type="number" value="1" step="any" data-bind="value: depth">
+            </label>
+        </div>
+
+        <div class="flute">
+            <label for="stepdown">Step Down (mm):
+            <input id="stepdown" type="number" value="1" step="any" data-bind="value: step">
+            </label>
+        </div>
+
+        <div class="laser">
+            <label for="test">Test pass:
+            <input id="test" type="checkbox" checked data-bind="checked: test">
+            </label>
+        </div>
+
+        <div class="wrap">
+            <label for="ra">Adjust radius:
+            <input id="ra" type="checkbox" checked data-bind="checked: radius_adjust">
+            </label>
+        </div>
+
+    </div>
+
+    <div style="margin-left: 310px;">
+        <div>
+            <label>Marker Selection:</label>
+            <select id="markerSelector" data-bind="value: markerAction">
+                <option value="zeroPoint">Set Zero</option>
+                <option class="wrap" value="refset">Diameter Reference</option>
+                <option value="Max">Set Max Limit</option>
+                <option value="Min">Set Min Limit</option>
+                <option value="targetPoint">Set Target</option>
+            </select>
+        </div>
+                
+        <div>
+            <label for="maxB">Maximum B-angle:
+            <input id="maxB" type="number" value="1" step="any" data-bind="value: max_B">
+            </label>
+        </div>
+
+        <div>
+            <label for="minB">Minimum B-angle:
+            <input id="minB" type="number" value="1" step="any" data-bind="value: min_B">
+            </label>
+        </div>
+
+        <div class="flute laser">
+            <label for="Arot">A-axis rotation:
+            <input id="Arot" type="number" value="1" step="any" data-bind="value: Arot">
+            </label>
+        </div>
+
+        <div class="flute">
+            <label for="leadin">Lead in (mm):
+            <input id="leadin" type="number" value="1" step="any" data-bind="value: leadin">
+            </label>
+        </div>
+
+        <div class="flute">
+            <label for="leadout">Lead out (mm):
+            <input id="leadout" type="number" value="1" step="any" data-bind="value: leadout">
+            </label>
+        </div>
+
+        <div class="advanced">
+            <details>
+                <summary>Super Advanced Features</summary>
+                <div>
+                    <label for="steps">Step size (mm):
+                    <input id="increments" type="number" value="1" step="any" data-bind="value: steps">
+                    </label>
+                </div>
+                <div>
+                    <label for="steps">B-angle smoothing (points):
+                    <input id="smoothing" type="number" min="1" value="6" step="" data-bind="value: smoothing">
+                    </label>
+                </div>
+                
+                <div class="wrap">
+                    <label for="singleB">Use single B-value for each operation:
+                       <input id="singleB" type="checkbox" data-bind="checked: singleB">
+                    </label>
+                </div>
+
+
+
+            </details>
+        </div>
+
+    </div>
+    <hr>
+
+    <div style="padding-left: 10px; float: left;">
+                <button id="write_gcode_button" class="btn btn-primary" data-bind="click: writeGCode">Write Job</button>
+    </div>
+    <div style="padding-right: 10px; float: right;">
+                <button id="target_button" class="btn btn-primary" data-bind="click: gotoposition">Go to Target</button>
+    </div>
+</div>
+   
