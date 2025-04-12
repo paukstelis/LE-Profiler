@@ -119,9 +119,9 @@ $(function() {
             $(".wrap").hide();
             $(".zscan").hide();
 
-            //self.smooth_points = self.settings.smooth_points;
-            //self.tool_length = self.settings.tool_length;
-            //self.increment = self.settings.increment;
+            self.smooth_points = self.settings.smooth_points;
+            self.tool_length = self.settings.tool_length;
+            self.increment = self.settings.increment;
 
         };
 
@@ -561,6 +561,6 @@ $(function() {
     OCTOPRINT_VIEWMODELS.push({
         construct: ProfilerViewModel,
         dependencies: ["loginStateViewModel", "settingsViewModel"],
-        elements: ["#tab_plugin_Profiler","#settings_plugin_profiler"]
+        elements: ["#tab_plugin_Profiler","#settings_plugin_Profiler"]
     });
 });
