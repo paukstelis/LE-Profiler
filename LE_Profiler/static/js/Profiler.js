@@ -112,7 +112,7 @@ $(function() {
         }
 
         self.onBeforeBinding = function () {
-            self.settings = self.global_settings.settings.plugins.Profiler;
+            self.settings = self.global_settings.settings.plugins.profiler;
             //console.log(self.global_settings);
             self.fetchProfileFiles();
             $(".laser").hide();
@@ -178,7 +178,7 @@ $(function() {
                         var clickedPoint = data.points[0];
                         var clickedX = clickedPoint.x;
                         var clickedZ = clickedPoint.y;
-                
+                        console.log(self.markerAction());
                         if (self.markerAction() === "zeroPoint") {
                             // Normalize both X and Z axes
                             self.xValues = self.xValues.map(x => x - clickedX);
@@ -191,7 +191,7 @@ $(function() {
                             //Plotly.react('profilePlot');
                         } else if (self.isZFile) {
                             // Z-file mode: Handle Z-axis selections
-                            if (self.markerAction() === "Max") {
+                            if (self.markerAction() == "Max") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Max'));
                                 if (self.vMin && clickedZ < self.vMin) {
                                     alert("Max must be greater than Min");
@@ -428,7 +428,7 @@ $(function() {
                 filepath: filePath
             };
 
-            OctoPrint.simpleApiCommand("Profiler", "creategraph", data)
+            OctoPrint.simpleApiCommand("profiler", "creategraph", data)
                 .done(function(response) {
                     console.log("Graph info transmitted");
                 })
@@ -445,7 +445,7 @@ $(function() {
                 vMax: self.vMax
             };
 
-            OctoPrint.simpleApiCommand("Profiler", "get_arc_length", data)
+            OctoPrint.simpleApiCommand("profiler", "get_arc_length", data)
                 .done(function(response) {
                     console.log("Info for arc length sent");
                 })
@@ -507,7 +507,7 @@ $(function() {
 
             };
     
-            OctoPrint.simpleApiCommand("", "write_job", data)
+            OctoPrint.simpleApiCommand("profiler", "write_job", data)
                 .done(function(response) {
                     console.log("GCode written successfully.");
                 })
@@ -548,7 +548,7 @@ $(function() {
                 mode: "target",
             };
             console.log(data);
-            OctoPrint.simpleApiCommand("Profiler", "go_to_position", data)
+            OctoPrint.simpleApiCommand("profiler", "go_to_position", data)
                 .done(function(response) {
                     console.log("Go to target successful.");
                 })
@@ -561,6 +561,6 @@ $(function() {
     OCTOPRINT_VIEWMODELS.push({
         construct: ProfilerViewModel,
         dependencies: ["loginStateViewModel", "settingsViewModel"],
-        elements: ["#tab_plugin_Profiler","#settings_plugin_Profiler"]
+        elements: ["#tab_plugin_profiler","#settings_plugin_profiler"]
     });
 });

@@ -320,14 +320,20 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
     
     def x_to_arc(self, profile_points, distance, start=True):
         #returns the X coordinate in our profile point that will give the arc of the length, distance
-        x_ref = profile_points[0] if start else profile_points[-1]
-        def arc_length(x_target, x_ref):
+        if start:
+            x_ref = profile_points[0]
+            bracket= (x_ref, profile_points[-1])
+        else:
+            x_ref =  profile_points[-1]
+            bracket= (x_ref, profile_points[0])
+
+        def arc_length(x_target):
             integral, _ = quad(lambda x: (1 + self.spline.derivative()(x) ** 2) ** 0.5, x_ref, x_target,limit=500)
             return integral
         def root_func(x):
-            return arc_length(x, x_ref) - distance
+            return arc_length(x) - distance
         
-        solution = root_scalar(root_func, bracket=[min(profile_points), max(profile_points)], method='brentq')
+        solution = root_scalar(root_func, bracket=bracket, method='brentq')
         if solution.converged:
             self._logger.info(f"converged solution: {solution.root}")
             return solution.root
@@ -390,23 +396,26 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
         #calculate lead-in/out increments
         if self.leadin or self.leadout:
-            #get profile x value from start that equals leadin:
-            lead_in_x = self.x_to_arc(profile_points, self.leadin, start=True)
-            lead_out_x = self.x_to_arc(profile_points, self.leadout, start=False)
-
+            try:
+                #get profile x value from start that equals leadin:
+                lead_in_x = self.x_to_arc(profile_points, self.leadin, start=True)
+                lead_out_x = self.x_to_arc(profile_points, -self.leadout, start=False)
+            except:
+                self._logger.info("Yeah leadin/out failed")
             total_in_step = int((lead_in_x - profile_points[0])/self.increment)
             total_out_step = int((profile_points[-1] - lead_out_x)/self.increment)
             #DOC, need to redo how this works.
-            in_inc = self.step/(self.leadin/self.increment)
-            out_inc = self.step/(self.leadout/self.increment)
+            in_inc = self.step/(total_in_step/self.increment)
+            out_inc = self.step/(total_out_step/self.increment)
             self._logger.info(f"increment for lead-in: {in_inc}, lead-out {out_inc}") 
+
         current_pass = 1
         while current_pass <= total_passes:
             depth = 0
             do_next = True
             pass_list = []
             if self.leadin or self.leadout:
-                out_step = 0
+                out_step = total_out_step
                 in_step = total_in_step        
             #calculate depth on this pass
             nominal_depth = current_pass*self.step*-1
