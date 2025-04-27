@@ -1155,7 +1155,7 @@ class G_Code_Rip:
         self.axis = "X"
         closest = min(self.x_coords, key=lambda x: abs(x - coord[0]))
         closest_idx = self.x_coords.index(closest)
-        half_window = self.smooth_points // 2
+        half_window = int(self.smooth_points) // 2
         start_idx = max(0, closest_idx - half_window)
         end_idx = min(len(self.x_coords), closest_idx + half_window + 1)
         near = self.x_coords[start_idx:end_idx]

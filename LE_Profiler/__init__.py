@@ -290,34 +290,30 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         trans_z = coord["Z"] + depth*math.cos(math.radians(-coord["B"]))
         return trans_x, trans_z
     
-    def lead_calc(self, type, nominal_depth, step, inc, each, first, last):
-        #going to have to figure out what to do if lead in and out overlap
+    def lead_calc(self, type, nominal_depth, step, inc):
         depth = nominal_depth
-        self._logger.info(f"type={type}, nd={nominal_depth}, step={step}, inc={inc}, each={each}, first={first}, last={last}")
+        self._logger.info(f"type={type}, nd={nominal_depth}, step={step}, inc={inc}")
         if type == "in":
-            if self.axis == "X" and (each - first <= self.leadin):
+            if self.axis == "X":
                 depth = nominal_depth + inc*step
-                return depth, False, step-1
-            if self.axis == "Z" and abs(each - first) <= self.leadin:
+
+            if self.axis == "Z":
                 if self.side == "front":
                     depth = nominal_depth + inc*step
                 if self.side == "back":
                     depth= nominal_depth - inc*step
-                return depth, False, step-1
-            return depth, True, step
 
         else:  #out 
-            if self.axis == "X" and (last - each <= self.leadout):
+            if self.axis == "X":
                 depth = nominal_depth + inc*step
-                return depth, False, step+1
-            if self.axis == "Z" and abs(each - last) <= self.leadout:
+
+            if self.axis == "Z":
                 if self.side == "front":
                     depth = nominal_depth + inc*step
                 if self.side == "back":
                     depth= nominal_depth - inc*step
-                return depth, False, step+1
-            return depth, False, step    
-    
+                
+        return depth
     def x_to_arc(self, profile_points, distance, start=True):
         #returns the X coordinate in our profile point that will give the arc of the length, distance
         if start:
@@ -335,8 +331,10 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         
         solution = root_scalar(root_func, bracket=bracket, method='brentq')
         if solution.converged:
-            self._logger.info(f"converged solution: {solution.root}")
-            return solution.root
+            x_raw = solution.root
+            closest_x = min(profile_points, key=lambda x: abs(x - x_raw))
+            self._logger.info(f"converged solution: {solution.root}, closest: {closest_x}")
+            return closest_x
         else:
             raise ValueError("Failed to find X coordinate for the given arc length.")
         
@@ -397,26 +395,34 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         #calculate lead-in/out increments
         if self.leadin or self.leadout:
             try:
-                #get profile x value from start that equals leadin:
+                #get profile x value from start/end that closest to the desired leadin/leadout:
                 lead_in_x = self.x_to_arc(profile_points, self.leadin, start=True)
                 lead_out_x = self.x_to_arc(profile_points, -self.leadout, start=False)
+
+                if lead_out_x < lead_in_x:
+                    #lead in's and outs  overlap, abort,throw some error or something
+                    self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
+                                                                    title="Lead-in/Lead-out error",
+                                                                    text="Lead-in and lead-out overlap, please adjust values",
+                                                                    hide=True,
+                                                                    delay=10000,
+                                                                    notify_type="error"))
+                    return
             except:
                 self._logger.info("Yeah leadin/out failed")
             total_in_step = int((lead_in_x - profile_points[0])/self.increment)
             total_out_step = int((profile_points[-1] - lead_out_x)/self.increment)
             #DOC, need to redo how this works.
-            in_inc = self.step/(total_in_step/self.increment)
-            out_inc = self.step/(total_out_step/self.increment)
+            in_inc = self.step/(total_in_step)
+            out_inc = self.step/(total_out_step)
+            self._logger.info(f"steps lead-in: {total_in_step}, lead-out {total_out_step}")
             self._logger.info(f"increment for lead-in: {in_inc}, lead-out {out_inc}") 
 
         current_pass = 1
         while current_pass <= total_passes:
             depth = 0
-            do_next = True
             pass_list = []
-            if self.leadin or self.leadout:
-                out_step = total_out_step
-                in_step = total_in_step        
+    
             #calculate depth on this pass
             nominal_depth = current_pass*self.step*-1
             if current_pass == total_passes and last_pass_depth:
@@ -426,13 +432,12 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             i = -1 #handles A rotations better
             for each in profile_points:
                 i+=1
+                steps_from_end = len(profile_points) - 1 - i
                 #Modify Z amounts for lead-in/out, logic may have to change for Z-axis cuts
-                if self.leadin:
-                    depth, do_next, in_step = self.lead_calc("in", nominal_depth, in_step, in_inc, each, profile_points[0], profile_points[-1])
-                    #in_step -= 1
-                if self.leadout and do_next:
-                    depth, do_next, out_step = self.lead_calc("out", nominal_depth, out_step, out_inc, each, profile_points[0], profile_points[-1])
-                    #out_step += 1
+                if self.leadin and i < total_in_step:
+                    depth = self.lead_calc("in", nominal_depth, total_in_step - i, in_inc)
+                if self.leadout and steps_from_end < total_out_step:
+                    depth = self.lead_calc("out", nominal_depth, total_out_step - steps_from_end, out_inc)
                 self._logger.info(f"Depth: {depth}")
                 coord = self.calc_coords(each) #these just follow profile, have to add cut depth
                 #get adjusted values
@@ -451,7 +456,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             pass_list.append(f"G0 A{seg_rot*i:0.3f}")
             #move to clear position
             
-
             j = 1
             while j <= self.segments:
                 command_list.append(f"(Starting segment {j} of {self.segments})")
@@ -505,7 +509,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         output_name = f"Wrap_{profile_name}.gcode"
         #calculate scalefactor
         profile_dist = self.get_arc(self.vMin, self.vMax)
-        #profile_dist, _ = quad(self.arc_length, self.vMin, self.vMax, limit=500)
         sf = profile_dist/self.width
         new_width = self.width*sf
         self._logger.info(f"Profile distance: {profile_dist}, Scale factors: {sf}, New width:{new_width}")
@@ -562,13 +565,15 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         if self.segments > 1:
             arots = 360/self.segments
         repeats = self.segments
+        sign, safe = self.safe_retract()
         with open(path_on_disk,"w") as newfile:
             newfile.write(f"(LatheEngraver G-code Wrapping)\n")
-            newfile.write(f"(Ref. Diam: {self.diam}, Radius adjust: {self.radius_adjust}, G-code width: {self.width})\n")
+            newfile.write(f"(Ref. Diam: {self.diam}, Projection: {self.radius_adjust}, G-code width: {self.width})\n")
             newfile.write(f"(Profile distance: {profile_dist:0.2f}, X-scale factor: {xtoscale}, A-scale factor: {sf})\n")
             newfile.write("(Safe moves added)\n")
+
             newfile.write(f"G90 G21\n")
-            newfile.write(f"G0 Z10\n")
+            newfile.write(f"G0 {safe}{sign}{10+self.clearance:0.4f}\n")
             newfile.write(f"G0 X{first_x:0.2f}\n")
             #single case
             while repeats:
@@ -583,7 +588,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     newfile.write(f"\nG0 A{arots:0.4f}")
                     newfile.write("\nG92 A0")
             
-
     def safe_retract(self):
         sign = ""
         safe = None
