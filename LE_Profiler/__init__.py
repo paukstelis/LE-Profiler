@@ -505,8 +505,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         #make the first move a safe X,Z move
 
         profile_name = self.name.removesuffix(".txt")
-        gcode_name = self.selected_file.removesuffix(".gcode")
-        output_name = f"Wrap_{profile_name}.gcode"
+        gcode_name = os.path.basename(self.selected_file).removesuffix(".gcode")
+        output_name = f"Wrap_{profile_name}_{gcode_name}.gcode"
         #calculate scalefactor
         profile_dist = self.get_arc(self.vMin, self.vMax)
         sf = profile_dist/self.width
