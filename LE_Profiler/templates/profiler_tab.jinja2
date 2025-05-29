@@ -76,7 +76,7 @@
 
         <div class="flute">
             <label for="stepdown">Step Down (mm):
-            <input id="stepdown" type="number" value="1" step="any" data-bind="value: step">
+            <input id="stepdown" type="number" value="1" step="any" data-bind="value: step_down">
             </label>
         </div>
 
@@ -144,7 +144,14 @@
                     <input id="increments" type="number" value="1" step="any" data-bind="value: steps">
                     </label>
                 </div>
-                <div>
+
+                <div class="flute laser">
+                    <label for="risky">Minimal clearance:
+                       <input id="risky" type="checkbox" data-bind="checked: risky">
+                    </label>
+                </div>
+
+                <div class="wrap>
                     <label for="steps">B-angle smoothing (points):
                     <input id="smoothing" type="number" min="1" value="6" step="" data-bind="value: smoothing">
                     </label>
@@ -155,9 +162,6 @@
                        <input id="singleB" type="checkbox" data-bind="checked: singleB">
                     </label>
                 </div>
-
-
-
             </details>
         </div>
 

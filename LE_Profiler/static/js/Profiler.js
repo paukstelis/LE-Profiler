@@ -19,7 +19,7 @@ $(function() {
         self.side = ko.observable("front");
         self.Arot = ko.observable(0);
         self.depth = ko.observable(1);
-        self.step = ko.observable(1);
+        self.step_down = ko.observable(1);
         self.leadin = ko.observable(0);
         self.leadout = ko.observable(0);
         self.smooth_points = ko.observable(4);
@@ -47,6 +47,7 @@ $(function() {
         self.selectedGCodeFile = null;
         self.radius_adjust = ko.observable(0);
         self.singleB = ko.observable(0);
+        self.risky = ko.observable(0);
 
         self.mode = ko.observable("none");
         
@@ -438,6 +439,19 @@ $(function() {
 
         };
 
+        self.send_error_messasge = function(message) {
+            var data = {
+                message: message
+            };
+
+            OctoPrint.simpleApiCommand("latheengraver", "send_error_message", data)
+                .done(function(response) {
+                    console.log("Error message sent");
+                })
+                .fail(function() {
+                    console.error("Error message not sent");
+                });
+        };
 
         self.get_pd = function() {
             var data = {
@@ -467,6 +481,12 @@ $(function() {
                 return;
             }
 
+            if (self.step_down > self.depth
+                || self.step_down <= 0) {
+                alert("Step down must be less than or equal to total depth and greater than 0.");
+                return;
+            }
+
             if (self.isZFile) {
                 var clearance = Math.max(...self.xValues);
             }
@@ -491,12 +511,13 @@ $(function() {
                 filename: self.selectedGCodeFile,
                 diam: self.refdiam(),
                 clear: clearance,
+                risky: self.risky(),
                 refZ: self.referenceZ,
                 arotate: self.Arot(),
                 side: self.side(),
                 name: self.name,
                 depth: self.depth(),
-                step: self.step(),
+                step_down: self.step_down(),
                 leadin: self.leadin(),
                 leadout: self.leadout(),
                 width: self.width,

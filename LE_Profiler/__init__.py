@@ -51,6 +51,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.smooth_points = 4
         self.weak_laser = 0
         self.singleB = False
+        self.risky_clearance = False
         #self.watched_path = self._settings.global_get_basefolder("watched")
 
     def initialize(self):
@@ -168,9 +169,9 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         if self.axis == "X":
             normal = math.atan2(slope, 1)
         if self.axis == "Z" and self.side == "back":
-            normal = math.atan2(1/abs(slope), 1)
+            normal = -math.atan2(slope,1) + math.pi/2
         if self.axis == "Z" and self.side == "front":
-            normal = math.atan2(1/abs(slope),1) - math.pi
+            normal = -math.atan2(slope,1) - math.pi/2
         
         b_angle = math.degrees(normal)
         
@@ -182,7 +183,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         #recalculate normal in case it is outside B range
         normal = math.radians(b_angle)
         
-        #self._logger.info(f"Normal angle: {normal}, slope: {slope},  B angle: {b_angle}")
+        self._logger.info(f"Normal angle: {normal}, slope: {slope},  B angle: {b_angle} x={coord}, z={z_value}")
         
         if self.axis == "X":
             normal = normal + math.pi / 2 
@@ -355,6 +356,12 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         if self.axis == "Z":
             profile_points.reverse()
 
+        if self.axis == "X":
+            z_at_min = self.spline(self.vMin)
+            z_at_max = self.spline(self.vMax)
+            if z_at_max < z_at_min:
+                profile_points.reverse()
+
         #A axis rotation per segment- this is very simplistic. Maybe calculate total distance and fraction of that total distace per move?
         seg_rot = self.arotate/(len(profile_points)-1)
         self._logger.info(f"Segment rotation: {seg_rot}")
@@ -370,6 +377,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         trans_x, trans_z = self.cut_depth_value(start, 5)
         self._logger.info(f"Start coords: X{start['X']}, Z{start['Z']}. Modified X{trans_x}, Z{trans_z}")
         safe_position = f"G0 X{trans_x:0.4f} Z{trans_z:0.4f} B{start['B']:0.4f}"
+        
         command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
         move_1 = f"G0 X{trans_x:0.4f}"
         move_2 = f"G0 Z{trans_z:0.4f} B{start['B']:0.4f}"
@@ -383,8 +391,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         command_list.append(f"M3 S24000")
 
         #calculate how many depth passes we need
-        #self.step = step down
-        pass_info = divmod(self.depth, self.step)
+        pass_info = divmod(self.depth, self.step_down)
         passes = pass_info[0] #quotient
         last_pass_depth = pass_info[1] #remainder
         if last_pass_depth:
@@ -413,8 +420,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             total_in_step = int((lead_in_x - profile_points[0])/self.increment)
             total_out_step = int((profile_points[-1] - lead_out_x)/self.increment)
             #DOC, need to redo how this works.
-            in_inc = self.step/(total_in_step)
-            out_inc = self.step/(total_out_step)
+            in_inc = self.step_down/(total_in_step)
+            out_inc = self.step_down/(total_out_step)
             self._logger.info(f"steps lead-in: {total_in_step}, lead-out {total_out_step}")
             self._logger.info(f"increment for lead-in: {in_inc}, lead-out {out_inc}") 
 
@@ -424,7 +431,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             pass_list = []
     
             #calculate depth on this pass
-            nominal_depth = current_pass*self.step*-1
+            nominal_depth = current_pass*self.step_down*-1
             if current_pass == total_passes and last_pass_depth:
                 nominal_depth = self.depth*-1
             
@@ -449,7 +456,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
             pass_list.append("(Pass done, move to safe position)")
             pass_list.append(f"G0 X{trans_x:0.3f} Z{trans_z:0.3f} B{coord['B']:0.3f} F{self.feed}")
-            pass_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
+            if not self.risky_clearance:
+                pass_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
             start_x, start_z = self.cut_depth_value(start, 5)
             pass_list.append(f"G90 G0 {self.axis}{start_x:0.3f}")
             #make sure we move back to last A position before starting next pass
@@ -470,7 +478,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         command_list.append("M5")
         command_list.append("M30")
         output_name = self.name.removesuffix(".txt")
-        output_name = f"Flute_S{self.segments}_Arot{self.arotate}"+output_name+".gcode"
+        output_name = f"Flute_S{self.segments}_Arot{self.arotate}_D{self.depth}_"+output_name+".gcode"
         path_on_disk = "{}/{}".format(self._settings.getBaseFolder("watched"), output_name)
 
         with open(path_on_disk,"w") as newfile:
@@ -626,12 +634,13 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             self.arotate = float(data["arotate"])
             self.segments = int(data["segments"])
             self.steps = float(data["steps"])
-            self.smoothing = float(data["smoothing"])
+            self.smoothing = int(data["smoothing"])
             if self.segments == 0:
                 self.segments = 1
             self.vMax = float(data["vMax"])
             self.vMin = float(data["vMin"])
             self.feed = int(data["feed"])
+            self.risky_clearance = bool(data["risky"])
             #must sort data first
             for each in self.plot_data:
                 for k, v in each.items():
@@ -653,7 +662,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
             if self.mode == "flute":
                 self.depth = float(data["depth"])
-                self.step = float(data["step"])
+                self.step_down = float(data["step_down"])
                 self.leadin = float(data["leadin"])
                 self.leadout = float(data["leadout"])
                 self.generate_flute_job()
