@@ -1169,9 +1169,9 @@ class G_Code_Rip:
         if self.axis == "X":
             normal = math.atan2(slope, 1)
         if self.axis == "Z" and self.side == "back":
-            normal = math.atan2(1/abs(slope), 1)
+            normal = -math.atan2(slope,1) + math.pi/2
         if self.axis == "Z" and self.side == "front":
-            normal = math.atan2(1/abs(slope),1) - math.pi
+            normal = -math.atan2(slope,1) - math.pi/2
         
         b_angle = math.degrees(normal)
         if self.singleB and self.currentB:

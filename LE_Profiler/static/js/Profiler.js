@@ -33,6 +33,8 @@ $(function() {
         self.wrapfiles = null;
         self.scans = null;
 
+        self.mode = ko.observable("none");
+
         //Laser
         self.power = ko.observable(250);
         self.feed = ko.observable(200);
@@ -48,23 +50,31 @@ $(function() {
         self.radius_adjust = ko.observable(0);
         self.singleB = ko.observable(0);
         self.risky = ko.observable(0);
-
-        self.mode = ko.observable("none");
+        // Radial arc parameters
+        self.arc_length = ko.observable(10); // default degrees per step
         
         self.onModeChange = function () {
             if (self.mode() === "wrap") {
                 $(".laser").hide();
                 $(".wrap").show();
                 $(".flute").hide();
+                $(".arc").hide();
                 self.fetchWrapFiles(); // Fetch GCode files for wrap mode
             } else if (self.mode() === "laser") {
                 $(".laser").show();
                 $(".wrap").hide();
                 $(".flute").hide();
+                $(".arc").hide();
             } else if (self.mode() === "flute") {
                 $(".laser").hide();
                 $(".wrap").hide();
                 $(".flute").show();
+                $(".arc").hide();
+            } else if (self.mode() === "arc") {
+                $(".laser").hide();
+                $(".wrap").hide();
+                $(".flute").hide();
+                $(".arc").show(); // Show radial_arc UI
             }
         }
 
@@ -179,8 +189,9 @@ $(function() {
                         var clickedPoint = data.points[0];
                         var clickedX = clickedPoint.x;
                         var clickedZ = clickedPoint.y;
-                        console.log(self.markerAction());
-                        if (self.markerAction() === "zeroPoint") {
+                        var markerAction = self.markerAction();
+
+                        if (markerAction === "zeroPoint") {
                             // Normalize both X and Z axes
                             self.xValues = self.xValues.map(x => x - clickedX);
                             self.zValues = self.zValues.map(z => z - clickedZ);
@@ -192,7 +203,7 @@ $(function() {
                             //Plotly.react('profilePlot');
                         } else if (self.isZFile) {
                             // Z-file mode: Handle Z-axis selections
-                            if (self.markerAction() == "Max") {
+                            if (markerAction == "Max") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Max'));
                                 if (self.vMin && clickedZ < self.vMin) {
                                     alert("Max must be greater than Min");
@@ -211,7 +222,7 @@ $(function() {
                                     ay: -30
                                 });
                                 plotProfile(true);
-                            } else if (self.markerAction() === "Min") {
+                            } else if (markerAction === "Min") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Min'));
                                 if (self.vMax && clickedZ > self.vMax) {
                                     alert("Min must be less than Max");
@@ -231,7 +242,7 @@ $(function() {
                                 });
                                 plotProfile(true);
 
-                            }  else if (self.markerAction() === "targetPoint") {
+                            }  else if (markerAction === "targetPoint") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Target'));
                                 self.target_position = clickedZ;
                                 self.annotations.push({
@@ -249,7 +260,7 @@ $(function() {
                             }
                         } else if (self.isXFile) {
                             // X-file mode: Handle X-axis selections
-                            if (self.markerAction() === "Max") {
+                            if (markerAction === "Max") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Max'));
                                 if (self.vMin && clickedX < self.vMin) {
                                     alert("Max must be greater than Min");
@@ -268,7 +279,7 @@ $(function() {
                                     ay: -30
                                 });
                                 if (!self.do_distance()) { plotProfile(false); }
-                            } else if (self.markerAction() === "Min") {
+                            } else if (markerAction === "Min") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Min'));
                                 if (self.vMax && clickedX > self.vMax) {
                                     alert("Min must be less than Max");
@@ -287,7 +298,7 @@ $(function() {
                                     ay: -30
                                 });
                                 if (!self.do_distance()) { plotProfile(false); }
-                            } else if (self.markerAction() === "targetPoint") {
+                            } else if (markerAction === "targetPoint") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Target'));
                                 self.target_position = clickedX;
                                 self.annotations.push({
@@ -303,7 +314,7 @@ $(function() {
                                 });
                                 plotProfile(false);
                             }
-                            else if (self.markerAction() === "refset") {
+                            else if (markerAction === "refset") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('D'));
                                 self.referenceZ = clickedZ;
                                 self.annotations.push({
@@ -320,6 +331,51 @@ $(function() {
                                 plotProfile(false);
                             }
                         }
+
+                        // --- Radial Arc marker actions ---
+                        if (markerAction === "Add Arc") {
+                            // Store the clicked position and create an observable for arc_length
+                            var arcPoint = {
+                                x: clickedX,
+                                z: clickedZ,
+                                arc_length: self.arc_length() // You can set this later as needed
+                            };
+                            self.radialArcPoints.push(arcPoint);
+
+                            // Add annotation to plot
+                            self.annotations.push({
+                                x: clickedX,
+                                y: clickedZ,
+                                xref: 'x',
+                                yref: 'y',
+                                text: 'Arc,'+self.arc_length(),
+                                showarrow: true,
+                                arrowhead: 2,
+                                ax: 0,
+                                ay: -40
+                            });
+                            plotProfile(self.isZFile);
+                        } else if (markerAction === "Remove Arc") {
+                            // Remove the closest arc point to the click
+                            var minDist = Infinity;
+                            var minIdx = -1;
+                            self.radialArcPoints().forEach(function(pt, idx) {
+                                var dist = Math.pow(pt.x - clickedX, 2) + Math.pow(pt.z - clickedZ, 2);
+                                if (dist < minDist) {
+                                    minDist = dist;
+                                    minIdx = idx;
+                                }
+                            });
+                            if (minIdx !== -1) {
+                                self.radialArcPoints.splice(minIdx, 1);
+                                // Remove corresponding annotation (by position)
+                                self.annotations = self.annotations.filter(function(a) {
+                                    return !(a.x === clickedX && a.y === clickedZ && a.text === 'Arc');
+                                });
+                                plotProfile(self.isZFile);
+                            }
+                        }
+                        // --- end radial arc marker actions ---
                     }
                 });
             });
@@ -476,7 +532,7 @@ $(function() {
                 return;
             }
 
-            if (!self.vMax || !self.vMin) {
+            if (self.vMax == null || self.vMin == null && self.mode() != "arc") {
                 alert("Min. and Max. values must be set.");
                 return;
             }
@@ -525,8 +581,13 @@ $(function() {
                 singleB: self.singleB(),
                 steps: self.steps(),
                 smoothing: self.smoothing(),
-
             };
+
+            // Add radial arc specific data
+            if (self.mode() === "radial_arc") {
+                data.arc_points = self.radialArcPoints();
+                data.arc_step = self.radialArcStep();
+            }
     
             OctoPrint.simpleApiCommand("profiler", "write_job", data)
                 .done(function(response) {

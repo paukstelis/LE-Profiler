@@ -338,12 +338,43 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             return closest_x
         else:
             raise ValueError("Failed to find X coordinate for the given arc length.")
+    def generate_arc_job(self):
+        self._logger.info("Starting Arc job")
+        command_list = []
+        profile_points = []
         
+        #Get defined arc points
+        for each in self.x_coords:
+            if each < self.vMin:
+                continue
+            if each > self.vMax:
+                continue
+            profile_points.append(each)
+            self._logger.info(f"Profile points: {profile_points}")
+        #reverse the profile for Z axis
+        if self.axis == "Z":
+            profile_points.reverse()
+
+        #A axis rotation per segment- this is very simplistic. Maybe calculate total distance and fraction of that total distace per move?
+        seg_rot = self.arotate/(len(profile_points)-1)
+        self._logger.info(f"Segment rotation: {seg_rot}")
+        A_rot = 360/self.segments
+
+        #for our safe position(s)
+        sign, safe = self.safe_retract()
+
+        #Preamble stuff here
+        command_list.append("G21")
+        command_list.append("G90")
+        
+        #move to start
+        start = self.calc_coords(profile   
+                                  
     def generate_flute_job(self):
         self._logger.info("Starting Flute job")
         command_list = []
         profile_points = []
-        
+        zero_length = False
         #truncate profile beween vMin and vMax
         for each in self.x_coords:
             if each < self.vMin:
@@ -351,7 +382,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             if each > self.vMax:
                 continue
             profile_points.append(each)
-        
+            self._logger.info(f"Profile points: {profile_points}")
         #reverse the profile for Z axis
         if self.axis == "Z":
             profile_points.reverse()
@@ -363,8 +394,20 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 profile_points.reverse()
 
         #A axis rotation per segment- this is very simplistic. Maybe calculate total distance and fraction of that total distace per move?
-        seg_rot = self.arotate/(len(profile_points)-1)
-        self._logger.info(f"Segment rotation: {seg_rot}")
+        try:
+            seg_rot = self.arotate/(len(profile_points)-1)
+            self._logger.info(f"Segment rotation: {seg_rot}")
+        except ZeroDivisionError:
+            zero_length = True
+            seg_rot = self.arotate
+            self._logger.info("Zero length profile, assuming 360 degree rotation")
+            self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
+                                                                    title="Zero-length profile",
+                                                                    text="Zero-length profile detected, make sure this is inteded.",
+                                                                    hide=True,
+                                                                    delay=10000,
+                                                                    notify_type="warning"))
+        
         A_rot = 360/self.segments
         #for our safe position(s)
         sign, safe = self.safe_retract()
@@ -449,7 +492,14 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 coord = self.calc_coords(each) #these just follow profile, have to add cut depth
                 #get adjusted values
                 trans_x, trans_z = self.cut_depth_value(coord, depth)
-                pass_list.append(f"G93 G90 G1 X{trans_x:0.3f} Z{trans_z:0.3f} A{seg_rot*i:0.3f} B{coord['B']:0.3f} F{self.feed}")
+                #handle zero length profiles (Circles)
+                if zero_length:
+                    rot = f"{seg_rot:0.3f}"
+                    pass_list.append(f"G93 G90 G1 X{trans_x:0.3f} Z{trans_z:0.3f} B{coord['B']:0.3f} F{self.feed}")
+                    pass_list.append(f"G93 G90 G1 A{rot} F{self.feed}")
+                else:
+                    rot = f"{seg_rot*i:0.3f}"
+                    pass_list.append(f"G93 G90 G1 X{trans_x:0.3f} Z{trans_z:0.3f} A{rot} B{coord['B']:0.3f} F{self.feed}")
                 depth = nominal_depth
             #Go to safe position from latest coord, this needs to retract ALONG current B
             trans_x, trans_z = self.cut_depth_value(coord, 5)
@@ -653,10 +703,15 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 #self._logger.info(self.plot_data)
             self.create_spline()
 
+            if self.mode == "arc":
+                self.arc_length = float(data["arc_length"])
+                self.leadin = float(data["leadin"])
+                self.leadout = float(data["leadout"])
+                self.generate_arc_job()
+
             if self.mode == "laser":
                 self.test = bool(data["test"])
                 self.power = int(data["power"])
-
                 #self.start_max = bool(data["start"])
                 self.generate_laser_job()
 

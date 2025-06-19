@@ -8,6 +8,7 @@
             <option value="laser">Laser</option>
             <option value="flute">Flute</option>
             <option value="wrap">Wrap</option>
+            <option value="arc">Radial Arc</option>
         </select>
     </div>
     
@@ -36,7 +37,7 @@
             <input id="refdiam" type="number" value="0" step="any" data-bind="value: refdiam">  
         </div>   
 
-        <div>
+        <div class="all">
             <label for="toollength">Rotation center to surface (mm):</label>
             <input id="toollength" type="number" value="1" step="any" data-bind="value: tool_length">
             
@@ -57,7 +58,7 @@
             </select>
         </div>
             
-        <div class="laser flute">
+        <div class="laser flute arc">
             <label for="feed">Nominal Feedrate (mm/min):</label>
             <input id="feed" type="number" value="1000" step="any" data-bind="value: feed">            
         </div>
@@ -68,13 +69,13 @@
             </label>
         </div>
 
-        <div class="flute">
+        <div class="flute arc">
             <label for="depth">Total Depth (mm):
             <input id="depth" type="number" value="1" step="any" data-bind="value: depth">
             </label>
         </div>
 
-        <div class="flute">
+        <div class="flute arc">
             <label for="stepdown">Step Down (mm):
             <input id="stepdown" type="number" value="1" step="any" data-bind="value: step_down">
             </label>
@@ -87,7 +88,7 @@
         </div>
 
         <div class="wrap">
-            <label for="ra">Project:
+            <label for="ra">Projection:
             <input id="ra" type="checkbox" checked data-bind="checked: radius_adjust">
             </label>
         </div>
@@ -100,8 +101,10 @@
             <select id="markerSelector" data-bind="value: markerAction">
                 <option value="zeroPoint">Set Zero</option>
                 <option class="wrap" value="refset">Diameter Reference</option>
-                <option value="Max">Set Max Limit</option>
-                <option value="Min">Set Min Limit</option>
+                <option class="wrap laser flute" value="Max">Set Max Limit</option>
+                <option class="wrap laser flute" value="Min">Set Min Limit</option>
+                <option class="arc" value="Add Arc">Add Arc</option>
+                <option class="arc" value="Remove Arc">Remove Arc</option>
                 <option value="targetPoint">Set Target</option>
             </select>
         </div>
@@ -124,15 +127,23 @@
             </label>
         </div>
 
-        <div class="flute">
-            <label for="leadin">Lead in (mm):
-            <input id="leadin" type="number" value="1" step="any" data-bind="value: leadin">
+        <div class="flute arc">
+            <label class="flute" for="leadin">Lead in (mm):
+            <label class="arc" for="leadin">Lead in (deg):
+                <input id="leadin" type="number" value="1" step="any" data-bind="value: leadin">
+            </label>
             </label>
         </div>
 
-        <div class="flute">
+        <div class="flute arc">
             <label for="leadout">Lead out (mm):
-            <input id="leadout" type="number" value="1" step="any" data-bind="value: leadout">
+                <input id="leadout" type="number" value="1" step="any" data-bind="value: leadout">
+            </label>
+        </div>
+
+        <div class="arc">
+            <label for="arc_length">Arc Length (deg):
+                <input id="arc_length" type="number" value="1" step="any" data-bind="value: arc_length">
             </label>
         </div>
 
