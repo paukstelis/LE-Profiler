@@ -349,7 +349,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         profile_points = []
         command_list.append(f"(LatheEngraver Flute job)")
         command_list.append(f"(Min and Max values: {self.vMin}, {self.vMax} )")
-        command_list.appened(f"(Tool length: {self.tool_length})")
+        command_list.append(f"(Tool length: {self.tool_length})")
         command_list.append(f"(Segments: {self.segments}, A rotation: {self.arotate})")
         command_list.append(f"(Depth: {self.depth}, Step down: {self.step_down})")
         command_list.append(f"(Lead-in: {self.leadin}, Lead-out: {self.leadout})")
