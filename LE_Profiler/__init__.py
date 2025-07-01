@@ -204,7 +204,11 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         command_list = []
         pass_list = []
         profile_points = []
-        
+        command_list.append(f"(LatheEngraver Laser job)")
+        command_list.append(f"(Min and Max values: {self.vMin}, {self.vMax} )")
+        command_list.appened(f"(Tool length: {self.tool_length})")
+        command_list.append(f"(Segments: {self.segments}, A rotation: {self.arotate})")
+        command_list.append(f"(B angle range: {self.min_B} to {self.max_B})")
         #truncate profile beween vMin and vMax
         for each in self.x_coords:
             if each < self.vMin:
@@ -343,7 +347,15 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self._logger.info("Starting Flute job")
         command_list = []
         profile_points = []
-        
+        command_list.append(f"(LatheEngraver Flute job)")
+        command_list.append(f"(Min and Max values: {self.vMin}, {self.vMax} )")
+        command_list.appened(f"(Tool length: {self.tool_length})")
+        command_list.append(f"(Segments: {self.segments}, A rotation: {self.arotate})")
+        command_list.append(f"(Depth: {self.depth}, Step down: {self.step_down})")
+        command_list.append(f"(Lead-in: {self.leadin}, Lead-out: {self.leadout})")
+        command_list.append(f"(Feed: {self.feed})")
+        command_list.append(f"(B angle range: {self.min_B} to {self.max_B})")
+
         #truncate profile beween vMin and vMax
         for each in self.x_coords:
             if each < self.vMin:
@@ -408,7 +420,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
                 if lead_out_x < lead_in_x:
                     #lead in's and outs  overlap, abort,throw some error or something
-                    self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
+                    self._plugin_manager.send_plugin_dmessage("latheengraver", dict(type="simple_notify",
                                                                     title="Lead-in/Lead-out error",
                                                                     text="Lead-in and lead-out overlap, please adjust values",
                                                                     hide=True,
