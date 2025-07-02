@@ -33,8 +33,9 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
     def __init__(self):
         self.plot_data = []
         self.spline = None
-        self.x_coords = []
-        self.z_coords = []
+        self.a_spline = None
+        self.ind_v = []
+        self.dep_v = []
         self.tool_length = 0
         self.min_B = float(0)
         self.max_B = float(0)
@@ -52,6 +53,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.weak_laser = 0
         self.singleB = False
         self.risky_clearance = False
+
         #self.watched_path = self._settings.global_get_basefolder("watched")
 
     def initialize(self):
@@ -83,73 +85,122 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
     def creategraph(self, filepath):
         folder = self._settings.getBaseFolder("uploads")
         filename = f"{folder}/{filepath}"
-        
-        datapoints = []
-        with open(filename,"r") as file:
+
+        segments = []
+        current_segment = []
+        with open(filename, "r") as file:
             for line in file:
                 stripped_line = line.strip()
                 if stripped_line == ";X":
                     self.axis = 'X'
+                    continue
                 if stripped_line == ";Z":
                     self.axis = 'Z'
-                if not stripped_line.startswith(";"):
-                    # Split the line by comma and convert to floats
-                    try:
-                        datapoints.append([float(x) for x in stripped_line.split(",")])
-                    except ValueError:
-                        pass
-        self._logger.debug(datapoints)
-        #sort, must be increasing
+                    continue
+                if stripped_line == "NEXTSEGMENT":
+                    if current_segment:
+                        segments.append(current_segment)
+                        current_segment = []
+                    continue
+                if not stripped_line or stripped_line.startswith(";"):
+                    continue
+                try:
+                    current_segment.append([float(x) for x in stripped_line.split(",")])
+                except ValueError:
+                    pass
+        if current_segment:
+            segments.append(current_segment)
+
+        self._logger.debug(f"Segments: {segments}")
+        # For now, just use the first segment for spline creation and plotting
+        datapoints = segments[0] if segments else []
+
+        # Sort, must be increasing
         if self.axis == 'Z':
-            datapoints = sorted(datapoints, key=lambda x: x[1])
-            min = datapoints[0][1] #smallest X value, should be 0
-            max = datapoints[-1][1] #largest X value
+            datapoints = sorted(datapoints, key=lambda x: x[1])  # sort by Z
+            min_val = datapoints[0][1]
+            max_val = datapoints[-1][1]
         if self.axis == 'X':
-            datapoints = sorted(datapoints, key=lambda x: x[0])
-            min = datapoints[0][0] #smallest X value, should be 0
-            max = datapoints[-1][0] #largest X value
+            datapoints = sorted(datapoints, key=lambda x: x[0])  # sort by X
+            min_val = datapoints[0][0]
+            max_val = datapoints[-1][0]
 
         self._logger.debug(datapoints)
         self._logger.debug(self.axis)
 
         generated_data = []
 
-        if self.axis == 'Z':
-            z_profile, x_profile = zip(*datapoints)
+        # Unpack the data
+        if datapoints:
+            x_profile, z_profile, a_profile = zip(*datapoints)
         else:
-            x_profile, z_profile = zip(*datapoints)
+            x_profile, z_profile, a_profile = [], [], []
 
-        self.spline = CubicSpline(x_profile, z_profile)
+        # Main spline: X->Z or Z->X
+        if self.axis == 'Z' and datapoints:
+            self.ind_v = list(z_profile)
+            self.dep_v = list(x_profile)
+            self.spline = CubicSpline(self.ind_v, self.dep_v)
+            # Ensure periodicity for a_spline
+            a_list = list(a_profile)
+            z_list = list(z_profile)
+            if a_list[0] != 0 or a_list[-1] != 360:
+                # If not already, duplicate the 0 value at 360
+                a_list.append(360.0)
+                z_list.append(z_list[0])
+            self.a_spline = CubicSpline(a_list, z_list, bc_type='periodic')
+        elif self.axis == 'X' and datapoints:
+            self.ind_v = list(x_profile)
+            self.dep_v = list(z_profile)
+            self.spline = CubicSpline(self.ind_v, self.dep_v)
+            a_list = list(a_profile)
+            x_list = list(x_profile)
+            if a_list[0] != 0 or a_list[-1] != 360:
+                a_list.append(360.0)
+                x_list.append(x_list[0])
+            self.a_spline = CubicSpline(a_list, x_list, bc_type='periodic')
 
         increment = self.increment
-        i = min
-        while i <= max:
-            z_val = self.spline(i)
-            z_val = float(z_val)
-            z_val = f"{z_val:.3f}"
-            x_val = f"{i:.3f}"
-            generated_data.append([x_val,z_val])
-            i = i+increment
+        i = min_val if datapoints else 0
+        while datapoints and i <= max_val:
+            if self.axis == 'Z':
+                z_val = self.spline(i)
+                a_val = self.a_spline(i)
+                z_val = float(z_val)
+                a_val = float(a_val)
+                z_val = f"{z_val:.3f}"
+                a_val = f"{a_val:.3f}"
+                x_val = f"{i:.3f}"
+                generated_data.append([x_val, z_val])
+            else:
+                z_val = self.spline(i)
+                a_val = self.a_spline(i)
+                z_val = float(z_val)
+                a_val = float(a_val)
+                z_val = f"{z_val:.3f}"
+                a_val = f"{a_val:.3f}"
+                x_val = f"{i:.3f}"
+                generated_data.append([x_val, z_val])
+            i = i + increment
+
         self._logger.debug(generated_data)
 
-        #send generated_data to plotly at the front end
+        # Send generated_data to plotly at the front end
         data = dict(type="graph", probe=generated_data, axis=self.axis)
         self._plugin_manager.send_plugin_message('Profiler', data)
 
     def create_spline(self):
-        self.x_coords = []
-        self.z_coords = []
-
+        self.ind_v = []
+        self.dep_v = []
         if self.axis == "X":
             for each in self.plot_data:
-                self.x_coords.append(float(each["x"]))
-                self.z_coords.append(float(each["z"]))
+                self.ind_v.append(float(each["x"]))
+                self.dep_v.append(float(each["z"]))
         if self.axis == "Z":
             for each in self.plot_data:
-                self.z_coords.append(float(each["x"]))
-                self.x_coords.append(float(each["z"]))
-
-        self.spline = CubicSpline(self.x_coords, self.z_coords)
+                self.ind_v.append(float(each["z"]))
+                self.dep_v.append(float(each["x"]))
+        self.spline = CubicSpline(self.ind_v, self.dep_v)
 
     def calc_coords(self, coord):
        
@@ -210,7 +261,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         command_list.append(f"(Segments: {self.segments}, A rotation: {self.arotate})")
         command_list.append(f"(B angle range: {self.min_B} to {self.max_B})")
         #truncate profile beween vMin and vMax
-        for each in self.x_coords:
+        for each in self.ind_v:
             if each < self.vMin:
                 continue
             if each > self.vMax:
