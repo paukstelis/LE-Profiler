@@ -8,6 +8,7 @@
             <option value="laser">Laser</option>
             <option value="flute">Flute</option>
             <option value="wrap">Wrap</option>
+            <option value="facet">Facet</option>
         </select>
     </div>
     
@@ -31,7 +32,7 @@
             </select>
         </div>
 
-        <div class="wrap">
+        <div class="wrap facet">
             <label for="refdiam">Diameter at reference (mm):</label>
             <input id="refdiam" type="number" value="0" step="any" data-bind="value: refdiam">  
         </div>   
@@ -57,7 +58,7 @@
             </select>
         </div>
             
-        <div class="laser flute">
+        <div class="laser flute facet">
             <label for="feed">Nominal Feedrate (mm/min):</label>
             <input id="feed" type="number" value="1000" step="any" data-bind="value: feed">            
         </div>
@@ -74,7 +75,7 @@
             </label>
         </div>
 
-        <div class="flute">
+        <div class="flute facet">
             <label for="stepdown">Step Down (mm):
             <input id="stepdown" type="number" value="1" step="any" data-bind="value: step_down">
             </label>
@@ -99,7 +100,7 @@
             <label>Marker Selection:</label>
             <select id="markerSelector" data-bind="value: markerAction">
                 <option value="zeroPoint">Set Zero</option>
-                <option class="wrap" value="refset">Diameter Reference</option>
+                <option class="wrap facet" value="refset">Diameter Reference</option>
                 <option value="Max">Set Max Limit</option>
                 <option value="Min">Set Min Limit</option>
                 <option value="targetPoint">Set Target</option>
@@ -118,9 +119,21 @@
             </label>
         </div>
 
-        <div class="flute laser">
+        <div class="flute laser facet">
             <label for="Arot">A-axis rotation:
             <input id="Arot" type="number" value="1" step="any" data-bind="value: Arot">
+            </label>
+        </div>
+
+        <div class="facet">
+            <label for="tooldiam">Tool Diameter (mm):
+            <input id="tooldiam" type="number" value="1" step="any" data-bind="value: tool_diam">
+            </label>
+        </div>
+
+        <div class="facet">
+            <label for="stepover">Step over (%):
+            <input id="stepover" type="number" value="0.5" step="any" data-bind="value: step_over">
             </label>
         </div>
 

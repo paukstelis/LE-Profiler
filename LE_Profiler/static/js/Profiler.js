@@ -24,6 +24,8 @@ $(function() {
         self.leadout = ko.observable(0);
         self.smooth_points = ko.observable(4);
         self.increment = ko.observable(0.5);
+        self.tool_diam = ko.observable(6.35);
+        self.step_over = ko.observable(0.5);
         self.reversed = false;
         self.isZFile = false;
         self.isXFile = false;
@@ -56,15 +58,23 @@ $(function() {
                 $(".laser").hide();
                 $(".wrap").show();
                 $(".flute").hide();
+                $(".facet").hide();
                 self.fetchWrapFiles(); // Fetch GCode files for wrap mode
             } else if (self.mode() === "laser") {
                 $(".laser").show();
                 $(".wrap").hide();
                 $(".flute").hide();
+                $(".facet").hide();
             } else if (self.mode() === "flute") {
                 $(".laser").hide();
                 $(".wrap").hide();
                 $(".flute").show();
+                $(".facet").hide();
+            } else if (self.mode() === "facet") {
+                $(".laser").hide();
+                $(".wrap").hide();
+                $(".flute").hide();
+                $(".facet").show();
             }
         }
 
@@ -525,6 +535,8 @@ $(function() {
                 singleB: self.singleB(),
                 steps: self.steps(),
                 smoothing: self.smoothing(),
+                step_over: self.step_over(),
+                tool_diam: self.tool_diam(),
 
             };
     
