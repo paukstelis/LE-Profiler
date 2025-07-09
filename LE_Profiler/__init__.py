@@ -324,6 +324,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     depth= nominal_depth - inc*step
                 
         return depth
+    
     def x_to_arc(self, profile_points, distance, start=True):
         #returns the X coordinate in our profile point that will give the arc of the length, distance
         if start:
@@ -470,11 +471,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         safe_position_start = f"G0 X{safe_x_start:0.4f} Z{safe_z_start:0.4f} B{start['B']:0.4f}"
         safe_position_end = f"G0 X{safe_x_end:0.4f} Z{safe_z_end:0.4f} B{end['B']:0.4f}"
 
-        #command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
-        #command_list.append(f"G0 B{start['B']:0.4f}")
-        #command_list.append(f"G0 X{safe_x_start:0.4f}")
-        #command_list.append(f"G0 Z{safe_z_start:0.4f}")
-
         facet_list = []
         current_a = 0
         a_direction = 1
@@ -500,7 +496,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                
                 if depth > 1:
                     if nominal_depth >= max_zmod and previous_depth >= max_zmod:
-                        self._logger.info(f"Max Z mod reached: {max_zmod:.2f}, stopping section")
+                        #self._logger.info(f"Max Z mod reached: {max_zmod:.2f}, stopping section")
                         section_done = True
                     if nominal_depth >= max_zmod:
                         nominal_depth = max_zmod
@@ -960,6 +956,14 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
                                                                     title="Facet Error",
                                                                     text="Minimum segments for Facet is 3",
+                                                                    hide=True,
+                                                                    delay=10000,
+                                                                    notify_type="error"))
+                    return
+                if self.axis != 'X':
+                    self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
+                                                                    title="Facet Error",
+                                                                    text="Facets are currently only compatible with X-axis scans.",
                                                                     hide=True,
                                                                     delay=10000,
                                                                     notify_type="error"))
