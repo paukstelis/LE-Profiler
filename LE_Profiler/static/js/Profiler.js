@@ -18,14 +18,12 @@ $(function() {
         self.smoothing = ko.observable(6);
         self.side = ko.observable("front");
         self.Arot = ko.observable(0);
-        self.depth = ko.observable(1);
+        self.depth = ko.observable(0);
         self.step_down = ko.observable(1);
         self.leadin = ko.observable(0);
         self.leadout = ko.observable(0);
         self.smooth_points = ko.observable(4);
         self.increment = ko.observable(0.5);
-        self.tool_diam = ko.observable(6.35);
-        self.step_over = ko.observable(0.5);
         self.reversed = false;
         self.isZFile = false;
         self.isXFile = false;
@@ -50,6 +48,11 @@ $(function() {
         self.radius_adjust = ko.observable(0);
         self.singleB = ko.observable(0);
         self.risky = ko.observable(0);
+        //Facet
+        self.tool_diam = ko.observable(6.35);
+        self.step_over = ko.observable(0.5);
+        self.facet_invert = ko.observable(0);
+        self.depth_mod = ko.observable(1.0);
 
         self.mode = ko.observable("none");
         
@@ -486,9 +489,9 @@ $(function() {
                 return;
             }
 
-            if (!self.vMax || !self.vMin) {
-                alert("Min. and Max. values must be set.");
-                return;
+            if (self.vMax === null || self.vMax === undefined || self.vMin === null || self.vMin === undefined) {
+                 alert("Min. and Max. values must be set.");
+                 return;
             }
 
             if (self.step_down > self.depth
@@ -537,7 +540,8 @@ $(function() {
                 smoothing: self.smoothing(),
                 step_over: self.step_over(),
                 tool_diam: self.tool_diam(),
-
+                facet_invert: self.facet_invert(),
+                depth_mod: self.depth_mod(),
             };
     
             OctoPrint.simpleApiCommand("profiler", "write_job", data)

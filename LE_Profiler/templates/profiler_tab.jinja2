@@ -1,191 +1,223 @@
 <!-- profiler_tab.jinja2 -->
 
 <div id="profiler_plugin_main" class="row-fluid">
-    <div>
-        <label for="modeSelect">Mode:</label>
-        <select id="modeSelect" data-bind="value: mode">
-            <option value="none"></option>
-            <option value="laser">Laser</option>
-            <option value="flute">Flute</option>
-            <option value="wrap">Wrap</option>
-            <option value="facet">Facet</option>
-        </select>
-    </div>
-    
-    <div>    
-        <button id="reverseZButton">Reverse Profile</button>
-    </div>
 
-    <div id="profilePlot" style="width: 100%; height: 500px;"></div>
-    <div style="width: 300px; float: left;">
+    <div id="profiler_inputs">
         <div>
-            <label for="scan_file_select">Select Scan File:</label>
-                <select id="scan_file_select">
-                    <option value="">Loading...</option>
-                </select>        
-        </div>
-
-        <div class="wrap" id="wrapFileSelectContainer" style="display: none;">
-            <label for="wrapFileSelect">Wrap Gcode:</label>
-            <select id="wrapFileSelect">
-                <option value="">Loading...</option>
+            <label for="modeSelect">Mode:</label>
+            <select id="modeSelect" data-bind="value: mode">
+                <option value="none"></option>
+                <option value="laser">Laser</option>
+                <option value="flute">Flute</option>
+                <option value="wrap">Wrap</option>
+                <option value="facet">Facet</option>
             </select>
-        </div>
-
-        <div class="wrap facet">
-            <label for="refdiam">Diameter at reference (mm):</label>
-            <input id="refdiam" type="number" value="0" step="any" data-bind="value: refdiam">  
-        </div>   
-
-        <div>
-            <label for="toollength">Rotation center to surface (mm):</label>
-            <input id="toollength" type="number" value="1" step="any" data-bind="value: tool_length">
-            
         </div>
         
-        <div class="all">
-            <label for="segment">Segments:</label>
-            <input id="segment" type="number" value="1" step="any" data-bind="value: segments">
-                
+        <div>    
+            <button id="reverseZButton">Reverse Profile</button>
         </div>
 
-        <div class="zscan">
-            <label>Tool direction:</label>
-            <select id="tooldirection" data-bind="value: side">
-                <option value="none"></option>
-                <option value="front">Front (X+)</option>
-                <option value="back">Back (X-)</option>
-            </select>
-        </div>
+        <div id="profilePlot" style="width: 100%; height: 500px;"></div>
+        <div style="width: 300px; float: left;">
+            <div>
+                <label for="scan_file_select">Select Scan File:
+                    <select id="scan_file_select">
+                        <option value="">Loading...</option>
+                    </select>
+                </label>        
+            </div>
+
+            <div class="wrap" id="wrapFileSelectContainer" style="display: none;">
+                <label for="wrapFileSelect">Wrap Gcode:</label>
+                <select id="wrapFileSelect">
+                    <option value="">Loading...</option>
+                </select>
+            </div>
+
+            <div class="wrap facet">
+                <label title="Establishes the diameter at a selectable point. This enables the diameter to be known at all positions on the curve." data-toggle="tooltip" for="refdiam">
+                    Diameter at reference (mm):
+                    <input id="refdiam" type="number" value="0" step="any" data-bind="value: refdiam">  
+                </label>
+            </div>   
+
+            <div>
+                <label title="The distance from the end of the tool to the center of the B-axis." data-toggle="tooltip" for="toollength">
+                    Rotation center to surface (mm):
+                    <input id="toollength" type="number" value="1" step="any" data-bind="value: tool_length">
+                </label>
+            </div>
             
-        <div class="laser flute facet">
-            <label for="feed">Nominal Feedrate (mm/min):</label>
-            <input id="feed" type="number" value="1000" step="any" data-bind="value: feed">            
-        </div>
+            <div class="all">
+                <label title="For all operations, this is the number of times the operation will be repeated using an angular offset of 360/segments." data-toggle="tooltip" for="segment">
+                    Segments:</label> 
+                    <input id="segment" type="number" value="1" step="any" data-bind="value: segments">
+                   
+            </div>
 
-        <div id="laserPower" class="laser">
-            <label for="power">Laser Power:
-            <input id="power" type="number" value="1000" step="any" data-bind="value: power">
-            </label>
-        </div>
-
-        <div class="flute">
-            <label for="depth">Total Depth (mm):
-            <input id="depth" type="number" value="1" step="any" data-bind="value: depth">
-            </label>
-        </div>
-
-        <div class="flute facet">
-            <label for="stepdown">Step Down (mm):
-            <input id="stepdown" type="number" value="1" step="any" data-bind="value: step_down">
-            </label>
-        </div>
-
-        <div class="laser">
-            <label for="test">Test pass:
-            <input id="test" type="checkbox" checked data-bind="checked: test">
-            </label>
-        </div>
-
-        <div class="wrap">
-            <label for="ra">Project:
-            <input id="ra" type="checkbox" checked data-bind="checked: radius_adjust">
-            </label>
-        </div>
-
-    </div>
-
-    <div style="margin-left: 310px;">
-        <div>
-            <label>Marker Selection:</label>
-            <select id="markerSelector" data-bind="value: markerAction">
-                <option value="zeroPoint">Set Zero</option>
-                <option class="wrap facet" value="refset">Diameter Reference</option>
-                <option value="Max">Set Max Limit</option>
-                <option value="Min">Set Min Limit</option>
-                <option value="targetPoint">Set Target</option>
-            </select>
-        </div>
+            <div class="zscan">
+                <label title="Z-scans operations can be done from either the front or back of the work piece." data-toggle="tooltip">
+                    Tool direction:
+                    <select id="tooldirection" data-bind="value: side">
+                        <option value="none"></option>
+                        <option value="front">Front (X+)</option>
+                        <option value="back">Back (X-)</option>
+                    </select>
+                </label>
+            </div>
                 
-        <div>
-            <label for="maxB">Maximum B-angle:
-            <input id="maxB" type="number" value="1" step="any" data-bind="value: max_B">
-            </label>
+            <div class="laser flute facet">
+                <label title="The linear feed rate" data-toggle="tooltip" for="feed">
+                    Nominal Feedrate (mm/min):
+                    <input id="feed" type="number" value="1000" step="any" data-bind="value: feed"> 
+                </label>           
+            </div>
+
+            <div id="laserPower" class="laser">
+                <label title="The laser power used during cutting." data-toggle="tooltip" for="power">
+                    Laser Power:
+                    <input id="power" type="number" value="1000" step="any" data-bind="value: power">
+                </label>
+            </div>
+
+            <div class="flute facet">
+                <label title="For fluting this is the total depth and must be non-zero. For facets this is the maximum overall depth-of-cut with zero value indicating no maximum." data-toggle="tooltip" for="depth">
+                    Total/Max Depth (mm):
+                    <input id="depth" type="number" value="1" step="any" data-bind="value: depth">
+                </label>
+            </div>
+
+            <div class="flute facet">
+                <label title="For fluting this is the depth-of-cut per pass. For facets this is the maximum depth-of-cut per pass." data-toggle="tooltip" for="stepdown">
+                    Step Down (mm):
+                    <input id="stepdown" type="number" value="1" step="any" data-bind="value: step_down">
+                </label>
+            </div>
+
+            <div class="facet">
+                <label title="Scale factor for the depth of cut. This reduces/increases the overall cut depth." data-toggle="tooltip" for="depthmod">
+                    Depth modifier:
+                    <input id="depthmod" type="number" value="1.0" step="any" data-bind="value: depth_mod">
+                </label>
+            </div>
+
+            <div class="laser">
+                <label title="Do a test pass with weak laser power to verify positioning." data-toggle="tooltip" for="test">
+                    Test pass:
+                    <input id="test" type="checkbox" checked data-bind="checked: test">
+                </label>
+            </div>
+
+            <div class="wrap">
+                <label title="This will project the gcode onto the work piece. With this unchecked, the gcode is wrapped and includes radial fall-off of the width." data-toggle="tooltip" for="ra">
+                    Project:
+                    <input id="ra" type="checkbox" checked data-bind="checked: radius_adjust">
+                </label>
+            </div>
+
+            <div class="facet">
+                <label title="This inverts the cut depth to make lobes instead of facets." data-toggle="tooltip" for="facetinvert">
+                    Invert depths:
+                    <input id="facetinvert" type="checkbox" checked data-bind="checked: facet_invert">
+                </label>
+            </div>
         </div>
 
-        <div>
-            <label for="minB">Minimum B-angle:
-            <input id="minB" type="number" value="1" step="any" data-bind="value: min_B">
-            </label>
+        <div style="margin-left: 310px;">
+            <div>
+                <label>Marker Selection:</label>
+                <select id="markerSelector" data-bind="value: markerAction">
+                    <option value="zeroPoint">Set Zero</option>
+                    <option class="wrap facet" value="refset">Diameter Reference</option>
+                    <option value="Max">Set Max Limit</option>
+                    <option value="Min">Set Min Limit</option>
+                    <option value="targetPoint">Set Target</option>
+                </select>
+            </div>
+                    
+            <div>
+                <label title="The maximum (positive) value for the B-axis." data-toggle="tooltip" for="maxB">
+                    Maximum B-angle:
+                    <input id="maxB" type="number" value="1" step="any" data-bind="value: max_B">
+                </label>
+            </div>
+
+            <div>
+                <label title="The minimum (negative) value for the B-axis." data-toggle="tooltip" for="minB">
+                    Minimum B-angle:
+                    <input id="minB" type="number" value="1" step="any" data-bind="value: min_B">
+                </label>
+            </div>
+
+            <div class="flute laser facet">
+                <label title="The number of degrees to rotate the A-axis during each segment." data-toggle="tooltip" for="Arot">
+                    A-axis rotation:
+                    <input id="Arot" type="number" value="1" step="any" data-bind="value: Arot">
+                </label>
+            </div>
+
+            <div class="facet">
+                <label title="The diameter of the cutter used for clearing. A larger diameter will take fewer passes at the expense of more ridges." data-toggle="tooltip" for="tooldiam">
+                    Tool Diameter (mm):
+                    <input id="tooldiam" type="number" value="1" step="any" data-bind="value: tool_diam">
+                </label>
+            </div>
+
+            <div class="facet">
+                <label title="The percent step over at the largest diameter of the piece based on the input tool diameter." data-toggle="tooltip" for="stepover">
+                    Step over (%):
+                    <input id="stepover" type="number" value="0.5" max="1.0" step="any" data-bind="value: step_over">
+                </label>
+            </div>
+
+            <div class="flute">
+                <label title="The distance in mm to reach the final depth-of-cut." data-toggle="tooltip" for="leadin">
+                    Lead in (mm):
+                    <input id="leadin" type="number" value="1" step="any" data-bind="value: leadin">
+                </label>
+            </div>
+
+            <div class="flute">
+                <label title="The distance in mm retract before the end of the cut." data-toggle="tooltip" for="leadout">
+                    Lead out (mm):
+                    <input id="leadout" type="number" value="1" step="any" data-bind="value: leadout">
+                </label>
+            </div>
+
+            <div class="advanced">
+                <details>
+                    <summary>Super Advanced Features</summary>
+                    <div>
+                        <label for="steps">Step size (mm):
+                            <input id="increments" type="number" value="1" step="any" data-bind="value: steps">
+                        </label>
+                    </div>
+
+                    <div class="flute laser">
+                        <label for="risky">Minimal clearance:
+                            <input id="risky" type="checkbox" data-bind="checked: risky">
+                        </label>
+                    </div>
+
+                    <div class="wrap">
+                        <label for="smoothing">B-angle smoothing (points):
+                            <input id="smoothing" type="number" min="1" value="6" step="" data-bind="value: smoothing">
+                        </label>
+                    </div>
+                    
+                    <div class="wrap">
+                        <label for="singleB">Use single B-value for each operation:
+                            <input id="singleB" type="checkbox" data-bind="checked: singleB">
+                        </label>
+                    </div>
+                </details>
+            </div>
         </div>
-
-        <div class="flute laser facet">
-            <label for="Arot">A-axis rotation:
-            <input id="Arot" type="number" value="1" step="any" data-bind="value: Arot">
-            </label>
-        </div>
-
-        <div class="facet">
-            <label for="tooldiam">Tool Diameter (mm):
-            <input id="tooldiam" type="number" value="1" step="any" data-bind="value: tool_diam">
-            </label>
-        </div>
-
-        <div class="facet">
-            <label for="stepover">Step over (%):
-            <input id="stepover" type="number" value="0.5" step="any" data-bind="value: step_over">
-            </label>
-        </div>
-
-        <div class="flute">
-            <label for="leadin">Lead in (mm):
-            <input id="leadin" type="number" value="1" step="any" data-bind="value: leadin">
-            </label>
-        </div>
-
-        <div class="flute">
-            <label for="leadout">Lead out (mm):
-            <input id="leadout" type="number" value="1" step="any" data-bind="value: leadout">
-            </label>
-        </div>
-
-        <div class="advanced">
-            <details>
-                <summary>Super Advanced Features</summary>
-                <div>
-                    <label for="steps">Step size (mm):
-                    <input id="increments" type="number" value="1" step="any" data-bind="value: steps">
-                    </label>
-                </div>
-
-                <div class="flute laser">
-                    <label for="risky">Minimal clearance:
-                       <input id="risky" type="checkbox" data-bind="checked: risky">
-                    </label>
-                </div>
-
-                <div class="wrap>
-                    <label for="steps">B-angle smoothing (points):
-                    <input id="smoothing" type="number" min="1" value="6" step="" data-bind="value: smoothing">
-                    </label>
-                </div>
-                
-                <div class="wrap">
-                    <label for="singleB">Use single B-value for each operation:
-                       <input id="singleB" type="checkbox" data-bind="checked: singleB">
-                    </label>
-                </div>
-            </details>
-        </div>
-
     </div>
-    <hr>
-
-    <div style="padding-left: 10px; float: left;">
-                <button id="write_gcode_button" class="btn btn-primary" data-bind="click: writeGCode">Write Job</button>
-    </div>
-    <div style="padding-right: 10px; float: right;">
-                <button id="target_button" class="btn btn-primary" data-bind="click: gotoposition">Go to Target</button>
+<br>
+    <div id="profiler_actions" style="clear: both; margin-top: 20px;">
+        <button id="write_gcode_button" class="btn btn-primary" data-bind="click: writeGCode">Write Job</button>
+        <button id="target_button" class="btn btn-primary" data-bind="click: gotoposition">Go to Target</button>
     </div>
 </div>
-   

@@ -99,7 +99,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                         datapoints.append([float(x) for x in stripped_line.split(",")])
                     except ValueError:
                         pass
-        self._logger.debug(datapoints)
+        self._logger.info(datapoints)
         #sort, must be increasing
         if self.axis == 'Z':
             datapoints = sorted(datapoints, key=lambda x: x[1])
@@ -110,15 +110,15 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             min = datapoints[0][0] #smallest X value, should be 0
             max = datapoints[-1][0] #largest X value
 
-        self._logger.debug(datapoints)
+        self._logger.info(datapoints)
         self._logger.debug(self.axis)
 
         generated_data = []
 
         if self.axis == 'Z':
-            z_profile, x_profile = zip(*datapoints)
+            z_profile, x_profile, a_profile = zip(*datapoints)
         else:
-            x_profile, z_profile = zip(*datapoints)
+            x_profile, z_profile, a_profile = zip(*datapoints)
 
         self.spline = CubicSpline(x_profile, z_profile)
 
@@ -344,6 +344,17 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         else:
             raise ValueError("Failed to find X coordinate for the given arc length.")
 
+    def calc_feedrate(self, coord1, coord2):
+        x1, z1 = coord1["X"], coord1["Z"]
+        x2, z2 = coord2["X"], coord2["Z"]
+        distance = math.sqrt((x2 - x1) ** 2 + (z2 - z1) ** 2)
+
+        if self.feed > 0:
+            time_min = (distance / self.feed)
+            return (1 / time_min)
+        else:
+            return 0.0
+        
     def sagitta_distance(self, theta, radius):
 
         max_angle = 2 * math.pi / self.segments
@@ -387,8 +398,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         command_list.append(f"(Tool length: {self.tool_length})")
         command_list.append(f"(Segments: {self.segments}, A rotation: {self.arotate})")
         command_list.append(f"(B angle range: {self.min_B} to {self.max_B})")
-        self.cutter_diam = 6.35
-        self.step_over = 0.5 * self.cutter_diam
+        step_over = self.step_over * self.cutter_diam
 
         #truncate profile beween vMin and vMax
         for each in self.x_coords:
@@ -398,32 +408,28 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 continue
             profile_points.append(each)
 
-        #A axis rotation per segment- this is very simplistic. Maybe calculate total distance and fraction of that total distace per move?
-        seg_rot = self.arotate/(len(profile_points)-1)
-        self._logger.info(f"Segment rotation: {seg_rot}")
-        A_rot = 360/self.segments
-        #for our safe position(s)
-        sign, safe = self.safe_retract()
-
         #Preamble stuff here
         command_list.append("G21")
         command_list.append("G90")
 
-        #get maximum radius based on reference diameter, this will provide total depth of cut
-        radius = self.diam/2
-        max_radius = radius
-        #this probably needs to be profile_points[1] not z_coords
-        for zpoints in self.z_coords:
-            if radius + zpoints > max_radius:
-                max_radius = radius + zpoints
-        self._logger.info(f"Max radius: {max_radius}")
+        reference_radius = self.diam / 2
+        max_radius = 0
+        for x in profile_points:
+            z_val = self.spline(x)
+            # Calculate the radius at this point
+            radius = reference_radius + (z_val - self.referenceZ)
+            if radius > max_radius:
+                max_radius = radius
+        command_list.append(f"(Max radius: {max_radius})")
         #This is maximum negative Z at the largest radius of the piece
         max_z = max_radius*(1 - math.cos(math.pi/self.segments))
+        command_list.append(f"(Max Z: {max_z})")
         #may use a scale factor here to modify max_z by some amount to avoid perfectly flat cuts
-
-        #max_z = max_z * self.scale_factor
-
-        #calculate how many depth passes we need, currently NOT smart about X position
+        max_z = max_z * self.depth_mod
+        command_list.append(f"(Max Z with scaling: {max_z})")
+        if self.depth and max_z > self.depth:
+            max_z = self.depth
+            command_list.append(f"(Max Z limited to {self.depth})")
         pass_info = divmod(max_z, self.step_down)
         passes = pass_info[0] #quotient
         last_pass_depth = pass_info[1] #remainder
@@ -438,14 +444,19 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         tool_angle_deg = math.degrees(tool_angle_rad)
 
         facet_angle = 360 / self.segments
-        step_over = self.step_over
-        delta_theta = step_over / max_radius  # radians
+        delta_theta = (tool_radius*self.step_over) / max_radius  # radians
         delta_degrees = math.degrees(delta_theta)
-        start_a = tool_angle_deg
-        end_a = facet_angle - tool_angle_deg
+        start_a = delta_degrees
+        end_a = facet_angle - delta_degrees
         num_a_steps = int(math.ceil(facet_angle) / delta_degrees)
         self._logger.info(f"Depth passes: {total_passes}, Facet angle: {facet_angle}, Delta degrees: {delta_degrees}, Num A steps: {num_a_steps}")
 
+        #A axis rotation per move this is very simplistic. Maybe calculate total distance and fraction of that total distace per move?
+        seg_rot = self.arotate/(len(profile_points)-1)
+        self._logger.info(f"Segment rotation: {seg_rot}")
+        A_rot = 360/self.segments
+        #for our safe position(s)
+        sign, safe = self.safe_retract()
         #gcode generation
         #move to start
         start = self.calc_coords(profile_points[0])
@@ -455,71 +466,103 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         safe_position_start = f"G0 X{safe_x_start:0.4f} Z{safe_z_start:0.4f} B{start['B']:0.4f}"
         safe_position_end = f"G0 X{safe_x_end:0.4f} Z{safe_z_end:0.4f} B{end['B']:0.4f}"
 
-        command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
-        command_list.append(f"G0 X{safe_x_start:0.4f}")
-        command_list.append(f"G0 Z{safe_z_start:0.4f} B{start['B']:0.4f}")
+        #command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
+        #command_list.append(f"G0 B{start['B']:0.4f}")
+        #command_list.append(f"G0 X{safe_x_start:0.4f}")
+        #command_list.append(f"G0 Z{safe_z_start:0.4f}")
 
         facet_list = []
-        facet_start_angle = 0
         current_a = 0
         a_direction = 1
+        max_zmod = 0
+        current_a = start_a
+        a_measure = start_a
 
-        for depth in range(1,total_passes+1):
-            current_a = start_a
-            a_measure = start_a
-            nominal_depth = depth * self.step_down
-            if depth == total_passes and last_pass_depth:
-                nominal_depth = last_pass_depth
-            self._logger.info(f"Facet depth pass {depth} of {total_passes}, nominal depth: {nominal_depth}")  
-            facet_list.append(f"(Facet depth pass {depth} of {total_passes} with nominal depth: {nominal_depth})")
+        for a_step in range(num_a_steps):
+            section_done = False
+            max_zmod = 0
+            previous_depth = 0    
+            if a_measure > end_a:
+                continue
+            facet_list.append(f"(Facet A angle step {a_step+1} of {num_a_steps})")
+            facet_list.append(f"(Current A angle: {current_a:.3f})")
+            facet_list.append(f"(A measure: {a_measure:.3f})")
+            facet_list.append(f"G0 A{current_a:.3f}")
+            facet_list.append(f"(a_direction = {a_direction})")
 
-            for a_step in range(num_a_steps):
-                facet_list.append(f"(Facet A angle step {a_step+1} of {num_a_steps})")
-                facet_list.append(f"(Current A angle: {current_a:.3f})")
-                facet_list.append(f"(A measure: {a_measure:.3f})")
-                facet_list.append(f"G1 A{current_a:.3f} F{self.feed}")
-
-                x_iter = profile_points if a_direction == 1 else reversed(profile_points)
+            for depth in range(1,total_passes+1):
+                previous_coord = None
+                nominal_depth = depth * self.step_down
+                               
+                if depth > 1:
+                    if nominal_depth >= max_zmod and previous_depth >= max_zmod:
+                        self._logger.info(f"Max Z mod reached: {max_zmod:.2f}, stopping section")
+                        section_done = True
+                    if nominal_depth >= max_zmod:
+                        nominal_depth = max_zmod
+                
+                self._logger.info(f"Nominal depth: {nominal_depth}")
+                previous_depth = nominal_depth
                 i = 0
-                for x in x_iter:
-                    coord = self.calc_coords(x)
-                    #get radius at our current X position
-                    current_radius = radius + coord["Z"] # Need to adjust this? Reference diameter may not be at 0,0
-                    #get adjusted values for Z
-                    z_mod = self.sagitta_distance(math.radians(a_measure),current_radius)
-                    if self.invert_facet:
-                        z_mod = max_z - z_mod
-                    #self._logger.info(f"Current radius: {current_radius}, Z mod: {z_mod}, Current A: {current_a}")
-                    feed = self.feed
-                    if z_mod > nominal_depth:
-                        z_mod = nominal_depth
-                    #speed adjustment based on depth
-                    if depth > 1 and z_mod < nominal_depth:
-                        #crank the speed
-                        feed = self.feed * 3
-                    trans_x, trans_z = self.cut_depth_value(coord, -z_mod)  # Adjust depth
-                    #handle A rotation parameter
-                    a_move = current_a
-                    if seg_rot:
-                        a_move = current_a + (seg_rot * i * a_direction)
-                    facet_list.append(
-                        f"G1 X{trans_x:.3f} Z{trans_z:.3f} A{a_move:.3f} B{coord['B']:.3f} F{feed}"
-                    )
-                    i += 1
-                if seg_rot:
-                    current_a = a_move
-                current_a += delta_degrees
-                a_measure += delta_degrees
-                a_direction *= -1
+                if not section_done:
+                    x_iter = profile_points if a_direction == 1 else reversed(profile_points)
+                    facet_list.append(f"(Facet depth pass {depth} with nominal depth: {nominal_depth})")
+                    for x in x_iter:
+                        coord = self.calc_coords(x)
+                        retract_x, retract_z = self.cut_depth_value(coord, 5)
+                        if previous_coord:
+                            feed = self.calc_feedrate(previous_coord, coord)
+                        else:
+                            feed = self.feed
+                        previous_coord = coord
+                        
 
-            #move to safe Z
-            facet_list.append("(Completed depth pass)")
-            facet_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
-            facet_list.append(f"G0 X{safe_x_start:0.4f} A0")
-            facet_list.append(f"G0 Z{safe_z_start:0.4f} B{start['B']:0.4f}")
+                        #get radius at our current X position
+                        current_radius = reference_radius + (self.spline(x) - self.referenceZ)
+                        #self._logger.info(f"Current radius: {current_radius}")
+                        #just use z_mod values at max_radius for inverts
+                        if self.invert_facet:
+                            current_radius = max_radius
+                        #get adjusted values for Z
+                        z_mod = self.sagitta_distance(math.radians(a_measure),current_radius)
+                        z_mod = z_mod * self.depth_mod  # Apply depth modifier
 
+                        if self.invert_facet:
+                            z_mod = max_z - z_mod
+    
+                        if z_mod > max_zmod:
+                            max_zmod = z_mod
+                            #self._logger.info(f"New max Z mod: {max_zmod:.2f}")
+
+                        if z_mod > nominal_depth:
+                            z_mod = nominal_depth
+
+                        trans_x, trans_z = self.cut_depth_value(coord, -z_mod)  # Adjust depth
+                        #handle A rotation parameter
+                        a_move = current_a
+                        if seg_rot:
+                            a_move = current_a + (seg_rot * i * a_direction)
+                        
+                        facet_list.append(f"G93 G1 X{trans_x:.3f} Z{trans_z:.3f} A{a_move:.3f} B{coord['B']:.3f} F{feed:.1f}")
+                        i += 1
+                    a_direction *= -1        
+                else:
+                    #if we are done with this pass, retract from current position
+                    facet_list.append(f"(Section done, retracting to safe position)")
+                    facet_list.append(f"G0 X{retract_x:.3f} Z{retract_z:.3f} B{coord['B']:.3f}")
+                    facet_list.append(f"(a_direction = {a_direction})")
+            if seg_rot:
+                current_a = a_move
+            current_a += delta_degrees
+            a_measure += delta_degrees
+            facet_list.append(f"G0 X{retract_x:.3f} Z{retract_z:.3f} B{coord['B']:.3f}")
+                
         for j in range(0, self.segments):
             command_list.append(f"(Starting facet {j+1} of {self.segments})")
+            command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
+            command_list.append(f"G0 B{start['B']:0.4f}")
+            command_list.append(f"G0 X{safe_x_start:0.4f}")
+            command_list.append(f"G0 Z{safe_z_start:0.4f}")
             command_list.extend(facet_list)
             command_list.append(f"G0 A{facet_angle:0.3f}")
             command_list.append("G92 A0")
@@ -527,7 +570,10 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         command_list.append("M5")
         command_list.append("M30")
         output_name = self.name.removesuffix(".txt")
-        output_name = f"Facet_S{self.segments}_Arot{self.arotate}_SD{self.step_down}_"+output_name+".gcode"
+        invert = ""
+        if self.invert_facet:
+            invert = "inv"
+        output_name = f"Facet_S{self.segments}_Arot{self.arotate}_SD{self.step_down}_{invert}_"+output_name+".gcode"
         path_on_disk = "{}/{}".format(self._settings.getBaseFolder("watched"), output_name)
         with open(path_on_disk,"w") as newfile:
             for line in command_list:
@@ -631,6 +677,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         while current_pass <= total_passes:
             depth = 0
             pass_list = []
+            previous_coord = None
     
             #calculate depth on this pass
             nominal_depth = current_pass*self.step_down*-1
@@ -650,14 +697,19 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self._logger.info(f"Depth: {depth}")
                 coord = self.calc_coords(each) #these just follow profile, have to add cut depth
                 #get adjusted values
+                if previous_coord:
+                    feed = self.calc_feedrate(previous_coord, coord)
+                else:
+                    feed = self.feed
+                previous_coord = coord               
                 trans_x, trans_z = self.cut_depth_value(coord, depth)
-                pass_list.append(f"G93 G90 G1 X{trans_x:0.3f} Z{trans_z:0.3f} A{seg_rot*i:0.3f} B{coord['B']:0.3f} F{self.feed}")
+                pass_list.append(f"G93 G90 G1 X{trans_x:0.3f} Z{trans_z:0.3f} A{seg_rot*i:0.3f} B{coord['B']:0.3f} F{feed:0.1f}")
                 depth = nominal_depth
             #Go to safe position from latest coord, this needs to retract ALONG current B
             trans_x, trans_z = self.cut_depth_value(coord, 5)
 
             pass_list.append("(Pass done, move to safe position)")
-            pass_list.append(f"G0 X{trans_x:0.3f} Z{trans_z:0.3f} B{coord['B']:0.3f} F{self.feed}")
+            pass_list.append(f"G0 X{trans_x:0.3f} Z{trans_z:0.3f} B{coord['B']:0.3f}")
             if not self.risky_clearance:
                 pass_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
             start_x, start_z = self.cut_depth_value(start, 5)
@@ -809,6 +861,9 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             safe = "X"
         return sign, safe
     
+    def is_api_protected(self):
+        return True
+    
     def get_api_commands(self):
         return dict(
             write_job=[],
@@ -884,6 +939,9 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self.step_down = float(data["step_down"])
                 self.cutter_diam = float(data["tool_diam"])
                 self.step_over = float(data["step_over"])
+                self.invert_facet = bool(data["facet_invert"])
+                self.depth_mod = float(data["depth_mod"])
+                self.depth = float(data["depth"])
                
                 if self.segments < 3:
                     self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
@@ -926,12 +984,15 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             #Move to safe position
             gcode = ["G90","G21",f"G0 {safe}{sign}{10+self.clearance:0.4f}"]
             coord = self.calc_coords(self.target)
-            move_1 = (f"G93 G90 G1 X{coord['X']:0.4f} F200")
-            move_2 = (f"G93 G90 G1 Z{coord['Z']:0.4f} B{coord['B']:0.4f} F200")
+            b_move  = (f"G90 B{coord['B']:0.4f}")
+            move_1 = (f"G93 G90 G0 X{coord['X']:0.4f}")
+            move_2 = (f"G93 G90 G0 Z{coord['Z']:0.4f}")
             if self.axis == "X":
+                gcode.append(b_move)
                 gcode.append(move_1)
                 gcode.append(move_2)
             else:
+                gcode.append(b_move)
                 gcode.append(move_2)
                 gcode.append(move_1)
             self._logger.info(gcode)
