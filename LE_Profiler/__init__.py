@@ -96,7 +96,11 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 if not stripped_line.startswith(";"):
                     # Split the line by comma and convert to floats
                     try:
-                        datapoints.append([float(x) for x in stripped_line.split(",")])
+                        parts = [float(x) for x in stripped_line.split(",")]
+                        # Pad to 3 elements
+                        while len(parts) < 3:
+                            parts.append(0.0)
+                        datapoints.append(parts)
                     except ValueError:
                         pass
         self._logger.info(datapoints)
