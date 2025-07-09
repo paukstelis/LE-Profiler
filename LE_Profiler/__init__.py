@@ -477,6 +477,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         max_zmod = 0
         current_a = start_a
         a_measure = start_a
+        ease_down = True
 
         for a_step in range(num_a_steps):
             section_done = False
@@ -488,7 +489,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             facet_list.append(f"(Current A angle: {current_a:.3f})")
             facet_list.append(f"(A measure: {a_measure:.3f})")
             facet_list.append(f"G0 A{current_a:.3f}")
-            facet_list.append(f"(a_direction = {a_direction})")
 
             for depth in range(1,total_passes+1):
                 previous_coord = None
@@ -536,6 +536,14 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
                         if z_mod > nominal_depth:
                             z_mod = nominal_depth
+                            if depth == 1 and ease_down:
+                                fract = nominal_depth/20
+                                z_mod = fract*(i+1)
+                                facet_list.append(f"(Ease down step with z_mod: {z_mod:.2f})")
+                                if z_mod > nominal_depth:
+                                    facet_list.append(f"(Ease down done)")
+                                    z_mod = nominal_depth
+                                    ease_down = False
 
                         trans_x, trans_z = self.cut_depth_value(coord, -z_mod)  # Adjust depth
                         #handle A rotation parameter
@@ -550,7 +558,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     #if we are done with this pass, retract from current position
                     facet_list.append(f"(Section done, retracting to safe position)")
                     facet_list.append(f"G0 X{retract_x:.3f} Z{retract_z:.3f} B{coord['B']:.3f}")
-                    facet_list.append(f"(a_direction = {a_direction})")
+            #if we haven't hit ease down on the first segment, ignore
+            ease_down = False
             if seg_rot:
                 current_a = a_move
             current_a += delta_degrees
