@@ -505,6 +505,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 previous_depth = nominal_depth
                 i = 0
                 if not section_done:
+                    
                     x_iter = profile_points if a_direction == 1 else reversed(profile_points)
                     facet_list.append(f"(Facet depth pass {depth} with nominal depth: {nominal_depth})")
                     for x in x_iter:
@@ -558,10 +559,10 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     #if we are done with this pass, retract from current position
                     facet_list.append(f"(Section done, retracting to safe position)")
                     facet_list.append(f"G0 X{retract_x:.3f} Z{retract_z:.3f} B{coord['B']:.3f}")
-            #if we haven't hit ease down on the first segment, ignore
-            ease_down = False
-            if seg_rot:
-                current_a = a_move
+                #if we haven't hit ease down on the first segment, ignore
+                ease_down = False
+                if seg_rot:
+                    current_a = a_move
             current_a += delta_degrees
             a_measure += delta_degrees
             facet_list.append(f"G0 X{retract_x:.3f} Z{retract_z:.3f} B{coord['B']:.3f}")
