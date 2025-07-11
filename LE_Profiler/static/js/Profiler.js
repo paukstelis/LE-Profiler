@@ -59,20 +59,20 @@ $(function() {
         self.onModeChange = function () {
             if (self.mode() === "wrap") {
                 $(".laser").hide();
-                $(".wrap").show();
                 $(".flute").hide();
                 $(".facet").hide();
+                $(".wrap").show();
                 self.fetchWrapFiles(); // Fetch GCode files for wrap mode
             } else if (self.mode() === "laser") {
-                $(".laser").show();
                 $(".wrap").hide();
                 $(".flute").hide();
                 $(".facet").hide();
+                $(".laser").show();
             } else if (self.mode() === "flute") {
                 $(".laser").hide();
                 $(".wrap").hide();
-                $(".flute").show();
                 $(".facet").hide();
+                $(".flute").show();
             } else if (self.mode() === "facet") {
                 $(".laser").hide();
                 $(".wrap").hide();
