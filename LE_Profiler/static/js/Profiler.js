@@ -593,11 +593,19 @@ $(function() {
                     console.error("Failed to go to target");
                 });
         };
+
+        self.onTabChange = function(current, previous) {
+            if (current === "#tab_plugin_profiler") {
+                self.fetchProfileFiles();
+                self.fetchWrapFiles();
+            }
+        };
     }
 
     OCTOPRINT_VIEWMODELS.push({
         construct: ProfilerViewModel,
         dependencies: ["loginStateViewModel", "settingsViewModel"],
-        elements: ["#tab_plugin_profiler","#settings_plugin_profiler"]
+        elements: ["#tab_plugin_profiler","#settings_plugin_profiler"],
+        onTabChange: true
     });
 });

@@ -205,6 +205,124 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             return_coord = {"X": z_center-self.tool_length, "Z": x_center, "B": b_angle}
         return return_coord
     
+    def cut_depth_value(self, coord, depth):
+        trans_x = coord["X"] + depth*math.sin(math.radians(-coord["B"]))
+        trans_z = coord["Z"] + depth*math.cos(math.radians(-coord["B"]))
+        return trans_x, trans_z
+    
+    def lead_calc(self, type, nominal_depth, step, inc):
+        depth = nominal_depth
+        self._logger.info(f"type={type}, nd={nominal_depth}, step={step}, inc={inc}")
+        if type == "in":
+            if self.axis == "X":
+                depth = nominal_depth + inc*step
+
+            if self.axis == "Z":
+                if self.side == "front":
+                    depth = nominal_depth + inc*step
+                if self.side == "back":
+                    depth= nominal_depth - inc*step
+
+        else:  #out 
+            if self.axis == "X":
+                depth = nominal_depth + inc*step
+
+            if self.axis == "Z":
+                if self.side == "front":
+                    depth = nominal_depth + inc*step
+                if self.side == "back":
+                    depth= nominal_depth - inc*step
+                
+        return depth
+    
+    def x_to_arc(self, profile_points, distance, start=True):
+        #returns the X coordinate in our profile point that will give the arc of the length, distance
+        if start:
+            x_ref = profile_points[0]
+            bracket= (x_ref, profile_points[-1])
+        else:
+            x_ref =  profile_points[-1]
+            bracket= (x_ref, profile_points[0])
+
+        def arc_length(x_target):
+            integral, _ = quad(lambda x: (1 + self.spline.derivative()(x) ** 2) ** 0.5, x_ref, x_target,limit=500)
+            return integral
+        def root_func(x):
+            return arc_length(x) - distance
+        
+        solution = root_scalar(root_func, bracket=bracket, method='brentq')
+        if solution.converged:
+            x_raw = solution.root
+            closest_x = min(profile_points, key=lambda x: abs(x - x_raw))
+            self._logger.info(f"converged solution: {solution.root}, closest: {closest_x}")
+            return closest_x
+        else:
+            raise ValueError("Failed to find X coordinate for the given arc length.")
+
+    def calc_feedrate(self, coord1, coord2):
+        x1, z1 = coord1["X"], coord1["Z"]
+        x2, z2 = coord2["X"], coord2["Z"]
+        distance = math.sqrt((x2 - x1) ** 2 + (z2 - z1) ** 2)
+
+        if self.feed > 0:
+            time_min = (distance / self.feed)
+            return (1 / time_min)
+        else:
+            return 0.0
+        
+    def safe_retract(self):
+        sign = ""
+        safe = None
+        if self.axis == "X":
+            safe = "Z"
+        if self.axis == "Z":
+            if self.side == "back":
+                sign = "-"
+            safe = "X"
+        return sign, safe
+
+    def arc_length(self, x):
+        spline_derivative = self.spline.derivative()
+        return (1 + spline_derivative(x) ** 2) ** 0.5
+    
+    def get_arc(self, x1, x2):
+        profile_dist, _ = quad(self.arc_length, x1, x2, limit=500)
+        return profile_dist
+
+    def sagitta_distance(self, theta, radius):
+
+        max_angle = 2 * math.pi / self.segments
+        # Clamp theta to [0, max_angle]
+        if theta < 0:
+            theta = 0
+        elif theta > max_angle:
+            theta = max_angle
+
+        # Circle point at angle theta
+        cx = radius * math.cos(theta)
+        cy = radius * math.sin(theta)
+
+        # Chord endpoints
+        p1x = radius  # at angle 0
+        p1y = 0
+
+        p2x = radius * math.cos(max_angle)
+        p2y = radius * math.sin(max_angle)
+
+        # Interpolation factor t
+        t = theta / max_angle
+
+        # Interpolated point on chord
+        chord_x = (1 - t) * p1x + t * p2x
+        chord_y = (1 - t) * p1y + t * p2y
+
+        # Distance from circle point to chord point
+        dx = cx - chord_x
+        dy = cy - chord_y
+        distance = math.sqrt(dx ** 2 + dy ** 2)
+
+        return distance
+    
     def generate_laser_job(self):
         command_list = []
         pass_list = []
@@ -295,105 +413,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             for line in command_list:
                 newfile.write(f"\n{line}")
 
-    def cut_depth_value(self, coord, depth):
-        trans_x = coord["X"] + depth*math.sin(math.radians(-coord["B"]))
-        trans_z = coord["Z"] + depth*math.cos(math.radians(-coord["B"]))
-        return trans_x, trans_z
-    
-    def lead_calc(self, type, nominal_depth, step, inc):
-        depth = nominal_depth
-        self._logger.info(f"type={type}, nd={nominal_depth}, step={step}, inc={inc}")
-        if type == "in":
-            if self.axis == "X":
-                depth = nominal_depth + inc*step
-
-            if self.axis == "Z":
-                if self.side == "front":
-                    depth = nominal_depth + inc*step
-                if self.side == "back":
-                    depth= nominal_depth - inc*step
-
-        else:  #out 
-            if self.axis == "X":
-                depth = nominal_depth + inc*step
-
-            if self.axis == "Z":
-                if self.side == "front":
-                    depth = nominal_depth + inc*step
-                if self.side == "back":
-                    depth= nominal_depth - inc*step
-                
-        return depth
-    
-    def x_to_arc(self, profile_points, distance, start=True):
-        #returns the X coordinate in our profile point that will give the arc of the length, distance
-        if start:
-            x_ref = profile_points[0]
-            bracket= (x_ref, profile_points[-1])
-        else:
-            x_ref =  profile_points[-1]
-            bracket= (x_ref, profile_points[0])
-
-        def arc_length(x_target):
-            integral, _ = quad(lambda x: (1 + self.spline.derivative()(x) ** 2) ** 0.5, x_ref, x_target,limit=500)
-            return integral
-        def root_func(x):
-            return arc_length(x) - distance
-        
-        solution = root_scalar(root_func, bracket=bracket, method='brentq')
-        if solution.converged:
-            x_raw = solution.root
-            closest_x = min(profile_points, key=lambda x: abs(x - x_raw))
-            self._logger.info(f"converged solution: {solution.root}, closest: {closest_x}")
-            return closest_x
-        else:
-            raise ValueError("Failed to find X coordinate for the given arc length.")
-
-    def calc_feedrate(self, coord1, coord2):
-        x1, z1 = coord1["X"], coord1["Z"]
-        x2, z2 = coord2["X"], coord2["Z"]
-        distance = math.sqrt((x2 - x1) ** 2 + (z2 - z1) ** 2)
-
-        if self.feed > 0:
-            time_min = (distance / self.feed)
-            return (1 / time_min)
-        else:
-            return 0.0
-        
-    def sagitta_distance(self, theta, radius):
-
-        max_angle = 2 * math.pi / self.segments
-        # Clamp theta to [0, max_angle]
-        if theta < 0:
-            theta = 0
-        elif theta > max_angle:
-            theta = max_angle
-
-        # Circle point at angle theta
-        cx = radius * math.cos(theta)
-        cy = radius * math.sin(theta)
-
-        # Chord endpoints
-        p1x = radius  # at angle 0
-        p1y = 0
-
-        p2x = radius * math.cos(max_angle)
-        p2y = radius * math.sin(max_angle)
-
-        # Interpolation factor t
-        t = theta / max_angle
-
-        # Interpolated point on chord
-        chord_x = (1 - t) * p1x + t * p2x
-        chord_y = (1 - t) * p1y + t * p2y
-
-        # Distance from circle point to chord point
-        dx = cx - chord_x
-        dy = cy - chord_y
-        distance = math.sqrt(dx ** 2 + dy ** 2)
-
-        return distance
-     
     def generate_facet_job(self):
         self._logger.info("Starting Facet job")
         command_list = []
@@ -749,14 +768,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             for line in command_list:
                 newfile.write(f"\n{line}")
 
-    def arc_length(self, x):
-        spline_derivative = self.spline.derivative()
-        return (1 + spline_derivative(x) ** 2) ** 0.5
-    
-    def get_arc(self, x1, x2):
-        profile_dist, _ = quad(self.arc_length, x1, x2, limit=500)
-        return profile_dist
-
     def generate_wrap_job(self):
         #create profile from diameter reference
         profile_points = []
@@ -860,17 +871,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     newfile.write(f"\nG0 A{arots:0.4f}")
                     newfile.write("\nG92 A0")
             
-    def safe_retract(self):
-        sign = ""
-        safe = None
-        if self.axis == "X":
-            safe = "Z"
-        if self.axis == "Z":
-            if self.side == "back":
-                sign = "-"
-            safe = "X"
-        return sign, safe
-    
     def is_api_protected(self):
         return True
     
