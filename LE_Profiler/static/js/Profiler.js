@@ -18,7 +18,7 @@ $(function() {
         self.smoothing = ko.observable(6);
         self.side = ko.observable("front");
         self.Arot = ko.observable(0);
-        self.depth = ko.observable(1);
+        self.depth = ko.observable(0);
         self.step_down = ko.observable(1);
         self.leadin = ko.observable(0);
         self.leadout = ko.observable(0);
@@ -48,23 +48,36 @@ $(function() {
         self.radius_adjust = ko.observable(0);
         self.singleB = ko.observable(0);
         self.risky = ko.observable(0);
+        //Facet
+        self.tool_diam = ko.observable(6.35);
+        self.step_over = ko.observable(0.5);
+        self.facet_invert = ko.observable(0);
+        self.depth_mod = ko.observable(1.0);
 
         self.mode = ko.observable("none");
         
         self.onModeChange = function () {
             if (self.mode() === "wrap") {
                 $(".laser").hide();
-                $(".wrap").show();
                 $(".flute").hide();
+                $(".facet").hide();
+                $(".wrap").show();
                 self.fetchWrapFiles(); // Fetch GCode files for wrap mode
             } else if (self.mode() === "laser") {
-                $(".laser").show();
                 $(".wrap").hide();
                 $(".flute").hide();
+                $(".facet").hide();
+                $(".laser").show();
             } else if (self.mode() === "flute") {
                 $(".laser").hide();
                 $(".wrap").hide();
+                $(".facet").hide();
                 $(".flute").show();
+            } else if (self.mode() === "facet") {
+                $(".laser").hide();
+                $(".wrap").hide();
+                $(".flute").hide();
+                $(".facet").show();
             }
         }
 
@@ -476,9 +489,9 @@ $(function() {
                 return;
             }
 
-            if (!self.vMax || !self.vMin) {
-                alert("Min. and Max. values must be set.");
-                return;
+            if (self.vMax === null || self.vMax === undefined || self.vMin === null || self.vMin === undefined) {
+                 alert("Min. and Max. values must be set.");
+                 return;
             }
 
             if (self.step_down > self.depth
@@ -525,7 +538,10 @@ $(function() {
                 singleB: self.singleB(),
                 steps: self.steps(),
                 smoothing: self.smoothing(),
-
+                step_over: self.step_over(),
+                tool_diam: self.tool_diam(),
+                facet_invert: self.facet_invert(),
+                depth_mod: self.depth_mod(),
             };
     
             OctoPrint.simpleApiCommand("profiler", "write_job", data)
@@ -577,11 +593,19 @@ $(function() {
                     console.error("Failed to go to target");
                 });
         };
+
+        self.onTabChange = function(current, previous) {
+            if (current === "#tab_plugin_profiler") {
+                self.fetchProfileFiles();
+                self.fetchWrapFiles();
+            }
+        };
     }
 
     OCTOPRINT_VIEWMODELS.push({
         construct: ProfilerViewModel,
         dependencies: ["loginStateViewModel", "settingsViewModel"],
-        elements: ["#tab_plugin_profiler","#settings_plugin_profiler"]
+        elements: ["#tab_plugin_profiler","#settings_plugin_profiler"],
+        onTabChange: true
     });
 });
