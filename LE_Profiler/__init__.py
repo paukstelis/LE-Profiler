@@ -818,8 +818,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         xoffset = abs(minx) + self.vMin
         self._logger.info(f"X offset: {xoffset}")
         temp = self.gcr.scale_translate(temp,translate=[-xoffset,0,0.0])
-        
-        
         temp = self.gcr.profile_conform(temp,
                                         self.spline,
                                         profile_points,
@@ -831,6 +829,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                         self.referenceZ,
                                         self.singleB,
                                         self.smoothing)
+                                        
         self._logger.info(temp)
         #get first X and Z moves that are not complex
         first_x = None
