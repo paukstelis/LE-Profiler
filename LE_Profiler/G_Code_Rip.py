@@ -1239,6 +1239,9 @@ class G_Code_Rip:
                 mvtype   = line[0]
                 POS_LAST = line[1][:]
                 POS      = line[2][:]
+                #special condition for the first move when we have complex numbers here, leading to weird Z-ness
+                if isinstance(POS_LAST[0], complex) and isinstance(POS[0], complex):
+                    continue
                 CENTER   = ['','','']
                 if line[0] == 1:
                     feed     = line[3]
