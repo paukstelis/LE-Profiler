@@ -317,6 +317,7 @@ $(function() {
                                 plotProfile(false);
                             }
                             else if (self.markerAction() === "refset") {
+                                var offset = getSmartAnnotationOffset(clickedX, clickedZ, self.xValues, self.zValues);
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('D'));
                                 self.referenceZ = clickedZ;
                                 self.annotations.push({
@@ -327,8 +328,8 @@ $(function() {
                                     text: 'D='+self.refdiam(),
                                     showarrow: true,
                                     arrowhead: 2,
-                                    ax: 0,
-                                    ay: 40
+                                    ax: offset.ax,
+                                    ay: offset.ay
                                 });
                                 plotProfile(false);
                             }
@@ -424,7 +425,7 @@ $(function() {
                 self.pd = data.pd;
                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Width'));
                 self.annotations.push({
-                    x: 0,
+                    x: 4,
                     y: 1,
                     xref: 'paper',
                     yref: 'paper',
@@ -609,3 +610,33 @@ $(function() {
         onTabChange: true
     });
 });
+
+function getSmartAnnotationOffset(x, y, xArray, yArray) {
+    // Find plot center
+    var xMin = Math.min(...xArray);
+    var xMax = Math.max(...xArray);
+    var yMin = Math.min(...yArray);
+    var yMax = Math.max(...yArray);
+    var xMid = (xMin + xMax) / 2;
+    var yMid = (yMin + yMax) / 2;
+
+    // Default offset
+    var ax = 30;
+    var ay = -30;
+
+    // Horizontal: left or right of center
+    if (x < xMid) {
+        ax = 30; // right
+    } else {
+        ax = -30; // left
+    }
+
+    // Vertical: above or below center
+    if (y < yMid) {
+        ay = 30; // below
+    } else {
+        ay = -30; // above
+    }
+
+    return { ax: ax, ay: ay };
+}

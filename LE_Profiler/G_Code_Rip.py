@@ -1188,7 +1188,11 @@ class G_Code_Rip:
         
         if self.axis == "X":
             normal = normal + math.pi / 2
-            depth = coord[2] #Z-depth
+            if self.do_oval:
+                ovality_depth = self.plugin.ovality_mod(coord[0], coord[1])
+                depth = coord[2]+
+            else:
+                depth = coord[2] #Z-depth
             x_center = coord[0] + ((self.tool_length) * math.cos(normal))
             z_center = z_value + ((self.tool_length) * math.sin(normal))
             x_center = x_center + depth*math.sin(math.radians(-b_angle))
@@ -1204,7 +1208,7 @@ class G_Code_Rip:
             #return_coord = {"X": x_center, "Z": z_center-self.tool_length, "B": b_angle}
             return [x_center,coord[1],z_center-self.tool_length,b_angle,radius_at_z]
                      
-    def profile_conform(self,code2conform,spline,x_coords,minB,maxB,tool,radius,radius_adjust,referenceZ,singleB,smooth_points):
+    def profile_conform(self,code2conform,spline,x_coords,minB,maxB,tool,radius,radius_adjust,referenceZ,singleB,smooth_points,do_oval,plugin=None):
 
         self.spline = spline
         self.x_coords = x_coords
@@ -1217,6 +1221,8 @@ class G_Code_Rip:
         self.singleB = singleB
         self.currentB = None
         self.smooth_points = smooth_points
+        self.do_oval = do_oval
+        self.plugin = plugin
 
         mvtype = -1  # G0 (Rapid), G1 (linear), G2 (clockwise arc) or G3 (counterclockwise arc).
         passthru = ""
