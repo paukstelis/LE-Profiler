@@ -48,7 +48,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.segments = 0
         self.datafolder = None
         self.increment = 0.5
-        self.smooth_points = 4
+        self.smooth_points = 12
         self.weak_laser = 0
         self.singleB = False
         self.risky_clearance = False
@@ -65,7 +65,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
     def get_settings_defaults(self):
         return dict(
             increment=0.5,
-            smooth_points=4,
+            smooth_points=12,
             tool_length=135,
             default_segments=1,
             )
@@ -329,7 +329,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         profile_points = []
         command_list.append(f"(LatheEngraver Laser job)")
         command_list.append(f"(Min and Max values: {self.vMin}, {self.vMax} )")
-        command_list.appened(f"(Tool length: {self.tool_length})")
+        command_list.append(f"(Tool length: {self.tool_length})")
         command_list.append(f"(Segments: {self.segments}, A rotation: {self.arotate})")
         command_list.append(f"(B angle range: {self.min_B} to {self.max_B})")
         #truncate profile beween vMin and vMax
@@ -375,10 +375,17 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         
         #this is to handle A rotations
         i = -1
+        previous_coord = None
         for each in profile_points:
+            
             i+=1 
             coord = self.calc_coords(each)
+            if previous_coord:
+                feed = self.calc_feedrate(previous_coord, coord)
+            else:
+                feed = self.feed
             pass_list.append(f"G93 G90 G1 X{coord['X']:0.3f} Z{coord['Z']:0.3f} A{seg_rot*i:0.3f} B{coord['B']:0.3f} F{self.feed}")
+            previous_coord = coord
         #make sure we move back to last A position before starting reverse pass
         pass_list.append(f"G0 A{seg_rot*i:0.3f}")    
         
