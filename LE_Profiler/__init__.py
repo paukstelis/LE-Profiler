@@ -62,6 +62,13 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.increment  = float(self._settings.get(["increment"]))
         self.tool_length = float(self._settings.get(["tool_length"]))
         self.weak_laser = self._settings.global_get(["plugins", "latheengraver", "weakLaserValue"])
+
+        storage = self._file_manager._storage("local")
+        if storage.folder_exists("wrap"):
+            self._logger.info("wrap folder exists")
+        else:
+            storage.add_folder("wrap")
+
     def get_settings_defaults(self):
         return dict(
             increment=0.5,
