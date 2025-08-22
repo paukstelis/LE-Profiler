@@ -1,6 +1,6 @@
 <!-- profiler_tab.jinja2 -->
 
-<div id="profiler_plugin_main" class="row-fluid">
+<div id="profiler_plugin_main" class="fluid-container">
 
     <div id="profiler_inputs">
         <div>
@@ -19,7 +19,8 @@
         </div>
 
         <div id="profilePlot" style="width: 100%; height: 500px;"></div>
-        <div style="width: 300px; float: left;">
+        <div id="pcontrols" class="span12">
+        <div class="span6" style="width: 300px; float: left;">
             <div>
                 <label for="scan_file_select">Select Scan File:
                     <select id="scan_file_select">
@@ -124,7 +125,7 @@
             </div>
         </div>
 
-        <div style="margin-left: 310px;">
+        <div class="span6">
             <div>
                 <label>Marker Selection:</label>
                 <select id="markerSelector" data-bind="value: markerAction">
@@ -138,81 +139,89 @@
                     
             <div>
                 <label title="The maximum (positive) value for the B-axis." data-toggle="tooltip" for="maxB">
-                    Maximum B-angle:
+                    Maximum B-angle:</label>
                     <input id="maxB" type="number" value="1" step="any" data-bind="value: max_B">
-                </label>
+                
             </div>
 
             <div>
                 <label title="The minimum (negative) value for the B-axis." data-toggle="tooltip" for="minB">
-                    Minimum B-angle:
+                    Minimum B-angle:</label>
                     <input id="minB" type="number" value="1" step="any" data-bind="value: min_B">
-                </label>
+                
             </div>
 
             <div class="flute laser facet">
                 <label title="The number of degrees to rotate the A-axis during each segment." data-toggle="tooltip" for="Arot">
-                    A-axis rotation:
+                    A-axis rotation:</label>
                     <input id="Arot" type="number" value="1" step="any" data-bind="value: Arot">
-                </label>
+                
             </div>
 
             <div class="facet">
                 <label title="The diameter of the cutter used for clearing. A larger diameter will take fewer passes at the expense of more ridges." data-toggle="tooltip" for="tooldiam">
-                    Tool Diameter (mm):
+                    Tool Diameter (mm):</label>
                     <input id="tooldiam" type="number" value="1" step="any" data-bind="value: tool_diam">
-                </label>
+                
             </div>
 
             <div class="facet">
                 <label title="The percent step over at the largest diameter of the piece based on the input tool diameter." data-toggle="tooltip" for="stepover">
-                    Step over (%):
+                    Step over (%):</label>
                     <input id="stepover" type="number" value="0.5" max="1.0" step="any" data-bind="value: step_over">
-                </label>
+                
             </div>
 
             <div class="flute">
                 <label title="The distance in mm to reach the final depth-of-cut." data-toggle="tooltip" for="leadin">
-                    Lead in (mm):
+                    Lead in (mm):</label>
                     <input id="leadin" type="number" value="1" step="any" data-bind="value: leadin">
-                </label>
+                
             </div>
 
             <div class="flute">
                 <label title="The distance in mm retract before the end of the cut." data-toggle="tooltip" for="leadout">
-                    Lead out (mm):
+                    Lead out (mm):</label>
                     <input id="leadout" type="number" value="1" step="any" data-bind="value: leadout">
-                </label>
+                
             </div>
 
             <div class="advanced">
                 <details>
                     <summary>Super Advanced Features</summary>
                     <div>
-                        <label for="steps">Step size (mm):
+                        <label for="steps">Step size (mm):</label>
                             <input id="increments" type="number" value="1" step="any" data-bind="value: steps">
-                        </label>
-                    </div>
-
-                    <div class="flute laser">
-                        <label for="risky">Minimal clearance:
-                            <input id="risky" type="checkbox" data-bind="checked: risky">
-                        </label>
+                        
                     </div>
 
                     <div class="wrap">
-                        <label for="smoothing">B-angle smoothing (points):
+                        <label for="smoothing">B-angle smoothing (points):</label>
                             <input id="smoothing" type="number" min="1" value="6" step="" data-bind="value: smoothing">
-                        </label>
+                        
                     </div>
                     
                     <div class="wrap">
-                        <label for="singleB">Use single B-value for each operation:
+                        <label for="singleB">Use single B-value for each operation:</label>
                             <input id="singleB" type="checkbox" data-bind="checked: singleB">
-                        </label>
+                        
                     </div>
+
+                    <div class="flute facet">
+                        <label title="Scales up feedrate during shallow passes. Up to max scale value." for="adaptive">Use adaptive feed rates:</label>
+                            <input id="adaptive" type="checkbox" data-bind="checked: adaptive">
+                        
+                    </div>
+
+                    <div class="flute facet">
+                        <label for="fmod1">Adaptive feedrate max scale:</label>
+                            <input id="fmod1" type="number" min="1" max="10" step="any" data-bind="value: feedscale">
+                        
+                    </div>
+
                 </details>
             </div>
+        </div>
         </div>
     </div>
 <br>

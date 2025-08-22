@@ -53,6 +53,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.singleB = False
         self.risky_clearance = False
         self.invert_facet = False
+        self.adaptive = False
+        self.feedscale = 1.0
         #self.watched_path = self._settings.global_get_basefolder("watched")
 
     def initialize(self):
@@ -534,7 +536,13 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     if nominal_depth >= max_zmod:
                         nominal_depth = max_zmod
                 
-                self._logger.info(f"Nominal depth: {nominal_depth}")
+                self._logger.debug(f"Nominal depth: {nominal_depth}")
+                #this cut depth
+                if depth == 1:
+                    thiscut = nominal_depth
+                else:
+                    thiscut = nominal_depth - previous_depth
+                #self._logger.debug(f"Cut depth on this pass: {thiscut}")
                 previous_depth = nominal_depth
                 i = 0
                 if not section_done:
@@ -550,7 +558,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                             feed = self.feed
                         previous_coord = coord
                         
-
                         #get radius at our current X position
                         current_radius = reference_radius + (self.spline(x) - self.referenceZ)
                         #self._logger.info(f"Current radius: {current_radius}")
@@ -571,13 +578,25 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                         if z_mod > nominal_depth:
                             z_mod = nominal_depth
                             if depth == 1 and ease_down:
-                                fract = nominal_depth/20
+                                #make this a setting, more than 20 is probably needed based on last test
+                                fract = nominal_depth/60
                                 z_mod = fract*(i+1)
                                 facet_list.append(f"(Ease down step with z_mod: {z_mod:.2f})")
                                 if z_mod > nominal_depth:
                                     facet_list.append(f"(Ease down done)")
                                     z_mod = nominal_depth
                                     ease_down = False
+
+                        #setting here so if zmod is less than some value, crank up the feed rate
+                        if self.adaptive:
+                            # Scale feed between maxscale (shallow cut) and 1.0 (full step_down)
+                            if thiscut < self.step_down:
+                                scale = (
+                                    self.feedscale+
+                                    (1.0 - self.feedscale) * (thiscut / self.step_down)
+                                )
+                                self._logger.debug(f"feed adjust from {feed} to {feed*scale}")
+                                feed = feed * scale
 
                         trans_x, trans_z = self.cut_depth_value(coord, -z_mod)  # Adjust depth
                         #handle A rotation parameter
@@ -707,14 +726,14 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                                                     notify_type="error"))
                     return
             except:
-                self._logger.info("Yeah leadin/out failed")
+                self._logger.debug("Yeah leadin/out failed")
             total_in_step = int((lead_in_x - profile_points[0])/self.increment)
             total_out_step = int((profile_points[-1] - lead_out_x)/self.increment)
             #DOC, need to redo how this works.
             in_inc = self.step_down/(total_in_step)
             out_inc = self.step_down/(total_out_step)
-            self._logger.info(f"steps lead-in: {total_in_step}, lead-out {total_out_step}")
-            self._logger.info(f"increment for lead-in: {in_inc}, lead-out {out_inc}") 
+            self._logger.debug(f"steps lead-in: {total_in_step}, lead-out {total_out_step}")
+            self._logger.debug(f"increment for lead-in: {in_inc}, lead-out {out_inc}") 
 
         current_pass = 1
         while current_pass <= total_passes:
@@ -737,7 +756,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     depth = self.lead_calc("in", nominal_depth, total_in_step - i, in_inc)
                 if self.leadout and steps_from_end < total_out_step:
                     depth = self.lead_calc("out", nominal_depth, total_out_step - steps_from_end, out_inc)
-                self._logger.info(f"Depth: {depth}")
+                self._logger.debug(f"Depth: {depth}")
                 coord = self.calc_coords(each) #these just follow profile, have to add cut depth
                 #get adjusted values
                 if previous_coord:
@@ -798,7 +817,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         basefolder = self._settings.getBaseFolder("uploads")
         self.gcr.Read_G_Code(f"{basefolder}/{self.selected_file}", XYarc2line=True, units="mm")
         #profile name
-        self._logger.info(self.gcr.g_code_data)
+        self._logger.debug(self.gcr.g_code_data)
         #make the first move a safe X,Z move
 
         profile_name = self.name.removesuffix(".txt")
@@ -939,13 +958,17 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
                 #self.start_max = bool(data["start"])
                 self.generate_laser_job()
+                return
 
             if self.mode == "flute":
                 self.depth = float(data["depth"])
                 self.step_down = float(data["step_down"])
                 self.leadin = float(data["leadin"])
                 self.leadout = float(data["leadout"])
+                self.adaptive = bool(data["adaptive"])
+                self.feedscale = float(data["feedscale"])
                 self.generate_flute_job()
+                return
             
             if self.mode == "wrap":
                 self.referenceZ = float(data["refZ"])
@@ -955,6 +978,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self.radius_adjust = bool(data["radius_adjust"])
                 self.singleB = bool(data["singleB"])
                 self.generate_wrap_job()
+                return
             
             if self.mode == "facet":
                 self.referenceZ = float(data["refZ"])
@@ -965,6 +989,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self.invert_facet = bool(data["facet_invert"])
                 self.depth_mod = float(data["depth_mod"])
                 self.depth = float(data["depth"])
+                self.adaptive = bool(data["adaptive"])
+                self.feedscale = float(data["feedscale"])
                
                 if self.segments < 3:
                     self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
@@ -983,6 +1009,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                                                     notify_type="error"))
                     return
                 self.generate_facet_job()
+                return
         if command == "get_arc_length":
             self.vMax = float(data["vMax"])
             self.vMin = float(data["vMin"])
