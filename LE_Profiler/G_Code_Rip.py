@@ -1164,7 +1164,7 @@ class G_Code_Rip:
         slopes.append(self.spline.derivative()(coord[0]))
         slope = sum(slopes) / len(slopes)
         z_value = self.spline(coord[0])
-
+        a_value = 0
         #normal angle calculation
         if self.axis == "X":
             normal = math.atan2(slope, 1)
@@ -1188,11 +1188,7 @@ class G_Code_Rip:
         
         if self.axis == "X":
             normal = normal + math.pi / 2
-            if self.do_oval:
-                ovality_depth = self.plugin.ovality_mod(coord[0], coord[1])
-                depth = coord[2]+
-            else:
-                depth = coord[2] #Z-depth
+            depth = coord[2] #Z-depth
             x_center = coord[0] + ((self.tool_length) * math.cos(normal))
             z_center = z_value + ((self.tool_length) * math.sin(normal))
             x_center = x_center + depth*math.sin(math.radians(-b_angle))
@@ -1205,8 +1201,11 @@ class G_Code_Rip:
                 else:
                     radius_at_z = self.radius + z_diff
 
+            #find A-axis value
+            if (not isinstance(coord[1], complex)):
+                a_value = math.degrees(coord[1]/radius_at_z)
             #return_coord = {"X": x_center, "Z": z_center-self.tool_length, "B": b_angle}
-            return [x_center,coord[1],z_center-self.tool_length,b_angle,radius_at_z]
+            return [x_center,a_value,z_center-self.tool_length,b_angle,radius_at_z]
                      
     def profile_conform(self,code2conform,spline,x_coords,minB,maxB,tool,radius,radius_adjust,referenceZ,singleB,smooth_points,do_oval,plugin=None):
 
@@ -1223,6 +1222,8 @@ class G_Code_Rip:
         self.smooth_points = smooth_points
         self.do_oval = do_oval
         self.plugin = plugin
+
+        #limitation is that we don't know A values in this method
 
         mvtype = -1  # G0 (Rapid), G1 (linear), G2 (clockwise arc) or G3 (counterclockwise arc).
         passthru = ""
@@ -1368,295 +1369,6 @@ class G_Code_Rip:
         y = coords[1]
         z = coords[0]*sin(angle) + coords[2]*cos(angle)
 
-    def generate_probing_gcode(self,
-                               probe_coords,
-                               probe_safe,
-                               probe_feed,
-                               probe_depth,
-                               pre_codes=" ",
-                               pause_codes=" ",
-                               probe_offsetX=0.0,
-                               probe_offsetY=0.0,
-                               probe_offsetZ=0.0,
-                               probe_soft="LinuxCNC",
-                               close_file = False,
-                               postamble=" ",
-                               savepts=1,
-                               allpoints=1):
-
-        savepts = savepts or close_file
-        ################################
-        ##  Generate Probing Code     ##
-        ##  For needed points         ##
-        ################################
-        g_code = []
-        g_code.append("( G-Code Modified by G-Code Ripper                        )")
-        g_code.append("( by Scorch - 2013-2021 www.scorchworks.com                    )")
-        if self.units == "in":
-            g_code.append("G20   (set units to inches)")
-        else:
-            g_code.append("G21   (set units to mm)")
-
-        Gprobe      = "G38.2"
-        ZProbeValue = "#5422"
-        datafileopen ="(Insert code to open data file for writing here.)"
-        datafileclose ="(Insert code to close data file for writing here.)"
-        datafileclose
-        if (probe_soft=="LinuxCNC"):
-            Gprobe       = "G38.2"
-            ZProbeValue  = "#5422"
-            if savepts:
-                datafileopen = "(PROBEOPEN probe_points.txt)"
-                datafileclose= "(PROBECLOSE)"
-                msg =       "The Probe point data from LinuxCNC will\n"
-                msg = msg + "be witten to a file named 'probe_points.txt'.\n"
-                msg = msg + "The file will be located in the linuxcnc\n"
-                msg = msg + "configuration folder."
-                message_box("Probe Data File",msg)
-        
-        elif (probe_soft=="MACH3"):
-            if savepts:
-                datafileopen = "M40"
-                datafileclose= "M41"
-            Gprobe       = "G31"
-            ZProbeValue  = "#2002"
-            
-        elif (probe_soft=="MACH4"):
-            if savepts:
-                datafileopen = "M40"
-                datafileclose= "M41"
-            Gprobe       = "G31"
-            ZProbeValue  = "#5063"  # The Z value variable changed from #2002 to #5063 in Mach4
-
-        elif (probe_soft=="DDCS"):
-            if savepts:
-                datafileopen = "ClearCoords[0]"
-                datafileclose= ""
-                msg =       "The Probe point data from DDCS will\n"
-                msg = msg + "be witten to a file named 'ProbeMap0.txt'."
-                message_box("Probe Data File",msg)
-            Gprobe="M101\nG01"
-            ZProbeValue = "#701"
-        
-        elif (probe_soft=="GRBL"):
-            #need to figure out if GRBL can do this
-            #Sadly GRBL cannot work this way
-            pass
-            
-        g_code.append("G90")
-
-        for line in pre_codes.split('|'):
-            g_code.append(line)
-            
-        g_code.append(datafileopen)		
-        max_probe_safe = max(probe_safe,probe_safe+probe_offsetZ)
-
-        g_code.append("G0 Z%.3f" %(max_probe_safe))
-        xp = 0.0
-        yp = 0.0
-        if (probe_soft=="LinuxCNC"):
-            g_code.append("#499 = %.3f" %(probe_depth))
-        else:
-            g_code.append("#499 = %.3f" %(probe_safe))
-        #g_code.append("(PRINT,value of variable 499 INIT is: #499)")
-        for i in range(len(probe_coords)):
-            if (probe_coords[i][0] or allpoints): #or close_file):
-                xp = probe_coords[i][2]
-                yp = probe_coords[i][3]
-                
-                g_code.append("G0 X%.3fY%.3f" %(xp+probe_offsetX,yp+probe_offsetY))
-                g_code.append("%s Z%.3f F%.1f" %(Gprobe, probe_depth+probe_offsetZ,probe_feed))
-
-                if (probe_soft=="DDCS"):
-                    g_code.append("M102")
-                    g_code.append("G04P0")
-                    g_code.append("RecordCoords[0,#699,#700,#701,#702]")
-                    
-                if (close_file == False):
-                    if (probe_offsetZ==0.0):
-                        g_code.append("#%d = %s" %(probe_coords[i][1],ZProbeValue))
-                    else:
-                        g_code.append("#%d = [%s-%.4f]" %(probe_coords[i][1],ZProbeValue,probe_offsetZ))
-                if (probe_soft=="LinuxCNC"):
-                    g_code.append("#499= [ [[#%d GE #499]*#%d] + [[#%d LT #499]*#499] ]" %(probe_coords[i][1],probe_coords[i][1],probe_coords[i][1]))
-                #g_code.append("(PRINT,value of variable 499 is: #499)")
-                g_code.append("G0 Z%.3f" %(probe_safe+probe_offsetZ) )
-
-        g_code.append("G0 Z%.3f" %(max_probe_safe))
-        g_code.append("G0 X%.3fY%.3f" %(xp,yp))
-
-        g_code.append(datafileclose)
-        for line in pause_codes.split('|'):
-            g_code.append(line)
-
-
-        if (close_file == False):
-            g_code.append("M0 (PAUSE PROGRAM)")
-        else:
-            for entry in postamble.split('|'):
-                g_code.append(entry)
-            g_code.append("M2")
-            
-        return g_code
-    
-###
-###
-    def generategcode_probe(self,side,z_safe=.5,
-                      plunge_feed=10.0,
-                      no_variables=False,
-                      Rstock=0.0,
-                      Wrap="XYZ",
-                      preamble="",
-                      postamble="",
-                      PLACES_L=4,
-                      PLACES_R=3,
-                      PLACES_F=1,
-                      WriteAll=False,
-                      FSCALE="Scale-Rotary",
-                      Reverse_Rotary = False,
-                      NoComments=False,
-                      probe_data=[],
-                      probe_offsetZ=0,
-                      probe_safe=.5):
-
-        g_code = []
-
-        sign = 1
-        if Reverse_Rotary:
-            sign = -1
-
-        self.MODAL_VAL={'X':" ", 'Y':" ", 'Z':" ", 'F':" ", 'A':" ", 'B':" ", 'I':" ", 'J':" "}
-        LASTX = 0
-        LASTY = 0
-        LASTZ = z_safe
-
-        g_code.append("( G-Code Modified by G-Code Ripper                        )")
-        g_code.append("( by Scorch - 2013-2021 www.scorchworks.com                    )")
-        AXIS=["X"     , "Y"     , "Z"     ]
-        DECP=[PLACES_L, PLACES_L, PLACES_L]  
-            
-        g_code.append("G90   (set absolute distance mode)")
-        #g_code.append("G90.1 (set absolute distance mode for arc centers)")
-        #g_code.append("G17   (set active plane to XY)")
-        
-        if self.units == "in":
-            g_code.append("G20   (set units to inches)")
-        else:
-            g_code.append("G21   (set units to mm)")
-            
-        if no_variables==False:
-            g_code.append("#<z_safe> = % 5.3f " %(z_safe))
-            g_code.append("#<plunge_feed> = % 5.0f " %(plunge_feed))
-            
-        for line in preamble.split('|'):
-            g_code.append(line)
-
-        g_code.append("(---------------------------------------------------------)")
-        ###################
-        ## GCODE WRITING ##
-        ###################
-        Z_probe_max = probe_offsetZ
-        if probe_data!=[]:
-            try:
-                Z_probe_max = probe_data[1][2] #set initial max value
-            except:
-                Z_probe_max = 0
-            for point_data in probe_data:
-                if point_data[2] > Z_probe_max:
-                    Z_probe_max=point_data[2]
-
-        First_Z_Safe = 0+0j
-        for line in side:
-            if line[0] == 0:
-                if (not isinstance(line[1][2], complex)):
-                    First_Z_Safe = line[1][2]
-                    break
-            
-        for line in side:
-            if line[0] == 1 or line[0] == 2 or line[0] == 3 or (line[0] == 0):
-                D0 = line[2][0]-line[1][0] 
-                D1 = line[2][1]-line[1][1] 
-                D2 = line[2][2]-line[1][2]
-                D012 = sqrt((D0+0j).real**2+(D1+0j).real**2+(D2+0j).real**2)
-                
-                coordA=[ line[1][0], line[1][1], line[1][2] ]
-                coordB=[ line[2][0], line[2][1], line[2][2] ]
-                
-                dx = coordA[0]-LASTX
-                dy = coordA[1]-LASTY
-                dz = coordA[2]-LASTZ
-
-                LASTX = coordB[0]
-                LASTY = coordB[1]
-                LASTZ = coordB[2]
-                
-            if (line[0] == 1) or (line[0] == 2) or (line[0] == 3):
-                Feed_adj = line[3]
-                
-                LINE = "G%d" %(line[0])
-                if probe_data!=[]:
-                    # Write probe adjusted values
-                    Z1 = probe_data[line[2][3]-500][2] 
-                    Z2 = probe_data[line[2][4]-500][2] 
-                    Z3 = probe_data[line[2][5]-500][2] 
-                    Z4 = probe_data[line[2][6]-500][2] 
-                    F1 = line[2][7]
-                    F2 = line[2][8]
-
-                    v102 = Z1 + F2*Z2 - F2*Z1
-                    v101 = Z3 + F2*Z4 - F2*Z3
-                    v100 = v102 + F1*v101 - F1*v102
-                    Z_calculated = coordB[2] + v100 - probe_offsetZ
-                    
-                    LINE = self.app_gcode_line(LINE,AXIS[0],coordB[0],DECP[0],WriteAll)
-                    LINE = self.app_gcode_line(LINE,AXIS[1],coordB[1],DECP[1],WriteAll)
-                    LINE = self.app_gcode_line(LINE,AXIS[2],Z_calculated,DECP[2],WriteAll)                    
-                    LINE = self.app_gcode_line(LINE,"F",Feed_adj  ,PLACES_F,WriteAll)
-                else:
-                    g_code.append("#102 = [#%d + %.3f*#%d - %.3f*#%d]" %(line[2][3],line[2][8],line[2][4],line[2][8],line[2][3]))
-                    g_code.append("#101 = [#%d + %.3f*#%d - %.3f*#%d]" %(line[2][5],line[2][8],line[2][6],line[2][8],line[2][5]))
-                    g_code.append("#100 = [#102+ %.3f*#101- %.3f*#102]"%(line[2][7],line[2][7]))
-
-                    LINE = self.app_gcode_line(LINE,AXIS[0],coordB[0],DECP[0],WriteAll)
-                    LINE = self.app_gcode_line(LINE,AXIS[1],coordB[1],DECP[1],WriteAll)
-                    # Do not delete the following line that sets junk value
-                    junk = self.app_gcode_line(LINE,AXIS[2],coordB[2],DECP[2],WriteAll)
-                    LINE = LINE + " Z[%.3f+#100] " %(coordB[2])
-                    LINE = self.app_gcode_line(LINE,"F",Feed_adj  ,PLACES_F,WriteAll)
-
-                g_code.append(LINE)
-                
-            elif (line[0] == 0):
-                LINE = "G%d" %(line[0])
-                LINE = self.app_gcode_line(LINE,AXIS[0],coordB[0],DECP[0],WriteAll)
-                LINE = self.app_gcode_line(LINE,AXIS[1],coordB[1],DECP[1],WriteAll)
-                if probe_data!=[]:
-                    LINE = self.app_gcode_line(LINE,AXIS[2],coordB[2]+Z_probe_max-probe_offsetZ,DECP[2],WriteAll)
-                else:
-                    if (not isinstance(coordB[2], complex)):
-                        LINE = LINE + " %s[%.3f+#499]" %(AXIS[2],coordB[2])
-                    else:
-                        LINE = LINE + " %s[%.3f+#499]" %(AXIS[2],First_Z_Safe)
-                
-                g_code.append(LINE)
-
-            elif line[0] == ";":
-                if not NoComments:
-                    g_code.append("%s" %(line[1]))
-                
-            elif line[0] == "M2":
-                for entry in postamble.split('|'):
-                    g_code.append(entry)
-            else:
-                g_code.append(line)
-
-        ########################
-        ## END G-CODE WRITING ##
-        ########################
-        return g_code
-
-###
-###
     def generategcode(self,side,z_safe=.5,
                       plunge_feed=10.0,
                       no_variables=False,
@@ -1665,6 +1377,8 @@ class G_Code_Rip:
                       preamble="",
                       postamble="",
                       chord=False,
+                      a_offset=0.0,
+                      do_oval=False,
                       gen_rapids=False,
                       PLACES_L=4,
                       PLACES_R=3,
@@ -1770,10 +1484,27 @@ class G_Code_Rip:
                             coordB[1]=sign*degrees(line[2][1]/Rstock)
                 
                 if Wrap == "SPECIAL":
+                    '''
                     if (not isinstance(line[1][1], complex)):
                         coordA[1]=sign*degrees(line[1][1]/line[1][-1]) #coordA[-1] is radius
                     if (not isinstance(line[2][1], complex)):
                         coordB[1]=sign*degrees(line[2][1]/line[2][-1])
+                    '''
+                    coordA[1] = line[1][1] #this is just calc. A value from coord_mod above
+                    coordB[1] = line[2][1]
+                    if a_offset:
+                        coordA[1] = coordA[1] + a_offset
+                        coordB[1] = coordB[1] + a_offset
+                    if do_oval:
+                        #will modify coordA and coordB coordinates based on the ovality values
+                        self.plugin._logger.debug(f"Start XZA: {coordB[0]},{coordB[2]},{coordB[1]} ")
+                        newZA = self.plugin.ovality_mod(coordA[0],coordA[1])
+                        newZB = self.plugin.ovality_mod(coordB[0],coordB[1])
+                        cA = {"X": coordA[0], "Z": coordA[2], "B": coordA[3]}
+                        cB = {"X": coordB[0], "Z": coordB[2], "B": coordB[3]}
+                        coordA[0], coordA[2] = self.plugin.cut_depth_value(cA, newZA)
+                        coordB[0], coordB[2] = self.plugin.cut_depth_value(cB, newZB)
+                        self.plugin._logger.debug(f"Ovality XZA: {coordB[0]},{coordB[2]},{coordB[1]} ")
 
                 dx = coordA[0]-LASTX
                 dy = coordA[1]-LASTY
@@ -1885,338 +1616,6 @@ class G_Code_Rip:
         return g_code
 
     
-    ##################################################
-    ###  Begin Dxf_Write G-Code Writing Function   ###
-    ##################################################
-    def generate_dxf_write_gcode(self,side,Rapids=True):
-        g_code = []
-        # Create a header section just in case the reading software needs it
-        g_code.append("999")
-        g_code.append("DXF created by G-Code Ripper <by Scorch, www.scorchworks.com>")
-        
-        g_code.append("0")
-        g_code.append("SECTION")
-        g_code.append("2")
-        g_code.append("HEADER")
-        g_code.append("0")
-        g_code.append("ENDSEC")
-        #         
-        #Tables Section
-        #These can be used to specify predefined constants, line styles, text styles, view 
-        #tables, user coordinate systems, etc. We will only use tables to define some layers 
-        #for use later on. Note: not all programs that support DXF import will support 
-        #layers and those that do usually insist on the layers being defined before use
-        #
-        # The following will initialise layers 1 and 2 for use with moves and rapid moves.
-        g_code.append("0")
-        g_code.append("SECTION")
-        g_code.append("2")
-        g_code.append("TABLES")
-        g_code.append("0")
-        g_code.append("TABLE")
-        g_code.append("2")
-        g_code.append("LTYPE")
-        g_code.append("70")
-        g_code.append("1")
-        g_code.append("0")
-        g_code.append("LTYPE")
-        g_code.append("2")
-        g_code.append("CONTINUOUS")
-        g_code.append("70")
-        g_code.append("64")
-        g_code.append("3")
-        g_code.append("Solid line")
-        g_code.append("72")
-        g_code.append("65")
-        g_code.append("73")
-        g_code.append("0")
-        g_code.append("40")
-        g_code.append("0.000000")
-        g_code.append("0")
-        g_code.append("ENDTAB")
-        g_code.append("0")
-        g_code.append("TABLE")
-        g_code.append("2")
-        g_code.append("LAYER")
-        g_code.append("70")
-        g_code.append("6")
-        g_code.append("0")
-        g_code.append("LAYER")
-        g_code.append("2")
-        g_code.append("1")
-        g_code.append("70")
-        g_code.append("64")
-        g_code.append("62")
-        g_code.append("7")
-        g_code.append("6")
-        g_code.append("CONTINUOUS")
-        g_code.append("0")
-        g_code.append("LAYER")
-        g_code.append("2")
-        g_code.append("2")
-        g_code.append("70")
-        g_code.append("64")
-        g_code.append("62")
-        g_code.append("7")
-        g_code.append("6")
-        g_code.append("CONTINUOUS")
-        g_code.append("0")
-        g_code.append("ENDTAB")
-        g_code.append("0")
-        g_code.append("TABLE")
-        g_code.append("2")
-        g_code.append("STYLE")
-        g_code.append("70")
-        g_code.append("0")
-        g_code.append("0")
-        g_code.append("ENDTAB")
-        g_code.append("0")
-        g_code.append("ENDSEC")
-        
-        #This block section is not necessary but apperantly it's good form to include one anyway.
-        #The following is an empty block section.
-        g_code.append("0")
-        g_code.append("SECTION")
-        g_code.append("2")
-        g_code.append("BLOCKS")
-        g_code.append("0")
-        g_code.append("ENDSEC")
-
-        # Start entities section
-        g_code.append("0")
-        g_code.append("SECTION")
-        g_code.append("2")
-        g_code.append("ENTITIES")
-        g_code.append("  0")
-
-        #################################
-        ## GCODE WRITING for Dxf_Write ##
-        #################################
-        for line in side:
-            if line[0] == 1 or (line[0] == 0 and Rapids):
-                g_code.append("LINE")
-                g_code.append("  5")
-                g_code.append("30")
-                g_code.append("100")
-                g_code.append("AcDbEntity")
-                g_code.append("  8") #layer Code #g_code.append("0")
-                if line[0] == 1:
-                    g_code.append("1")
-                else:
-                    g_code.append("2")    
-                g_code.append(" 62") #color code
-                if line[0] == 1:
-                    g_code.append("10")
-                else:
-                    g_code.append("150")
-                g_code.append("100")
-                g_code.append("AcDbLine")
-                g_code.append(" 10")
-                g_code.append("%.4f" %((line[1][0]+0j).real)) #x1 coord
-                g_code.append(" 20")
-                g_code.append("%.4f" %((line[1][1]+0j).real)) #y1 coord
-                g_code.append(" 30")
-                g_code.append("%.4f" %((line[1][2]+0j).real)) #z1 coord
-                g_code.append(" 11")
-                g_code.append("%.4f" %((line[2][0]+0j).real)) #x2 coord
-                g_code.append(" 21")
-                g_code.append("%.4f" %((line[2][1]+0j).real)) #y2 coord
-                g_code.append(" 31")
-                g_code.append("%.4f" %((line[2][2]+0j).real)) #z2 coord
-                g_code.append("  0")
-
-        g_code.append("ENDSEC")
-        g_code.append("0")
-        g_code.append("EOF")
-        ######################################
-        ## END G-CODE WRITING for Dxf_Write ##
-        ######################################
-        return g_code
-    ##################################################
-    ###    End Dxf_Write G-Code Writing Function   ###
-    ##################################################
-
-    #####################################
-    ###  Begin CSV Writing Function   ###
-    #####################################
-    def generate_csv_write_gcode(self,side,Rapids=True):
-        g_code = []
-        mv_type = 1
-        g_code.append("Type,X,Y,Z")
-        for line in side:
-            type_last  = mv_type
-            if (line[0] == 1) or (line[0] == 0 and Rapids):
-                mv_type = line[0]
-                if type_last != mv_type:
-                    g_code.append("%d,%.4f,%.4f,%.4f" %(mv_type,
-                                                  (line[1][0]+0j).real,
-                                                  (line[1][1]+0j).real,
-                                                  (line[1][2]+0j).real))
-                g_code.append("%d,%.4f,%.4f,%.4f" %(mv_type,
-                                              (line[2][0]+0j).real,
-                                              (line[2][1]+0j).real,
-                                              (line[2][2]+0j).real))
-            elif line[0] == 0:
-                g_code.append(",,,")
-            # end for line in side               
-        return g_code
-    
-    #####################################
-    ###    End CSV Writing Function   ###
-    #####################################
-
-    
-    def generate_round_gcode(self,
-                      Lmin = 0.0,
-                      Lmax = 3.0,
-                      cut_depth = 0.03,
-                      tool_dia = .25,
-                      step_over = 25.0,
-                      feed = 20,
-                      plunge_feed=10.0,
-                      z_safe=.5,
-                      no_variables=False,
-                      Rstock=0.0,
-                      Wrap="XYZ",
-                      preamble="",
-                      postamble="",
-                      PLACES_L=4,
-                      PLACES_R=3,
-                      PLACES_F=1,
-                      climb_mill=False,
-                      Reverse_Rotary = False,
-                      FSCALE="Scale-Rotary"):
-
-        g_code = []
-        Feed_adj = feed
-        if PLACES_F > 0:
-            FORMAT_FEED = "%% .%df" %(PLACES_F)
-        else:
-            FORMAT_FEED = "%d"
-            
-        if Lmin < Lmax:
-            Lmin_tp = Lmin + tool_dia/2.0
-            Lmax_tp = Lmax - tool_dia/2.0
-        else:
-            Lmin_tp = Lmax + tool_dia/2.0
-            Lmax_tp = Lmin - tool_dia/2.0
-        
-        sign = 1
-        if Reverse_Rotary:
-            sign = -1 * sign
-
-        if not climb_mill:
-            sign = -1 * sign
-
-        g_code.append("( G-Code Generated by G-Code Ripper                       )")
-        g_code.append("( by Scorch - 2013-2021 www.scorchworks.com                    )")
-        if Lmax_tp-Lmin_tp < tool_dia:
-            g_code.append("( Tool diameter too large for defined cleanup area.       )")
-            return g_code
-        
-        if Wrap == "XYZ":
-            return
-        elif Wrap == "Y2A":
-            LINEAR="X"
-            ROTARY="A"
-            g_code.append("( Rounding A-axis, Linear axis is X-axis)")
-        elif Wrap == "X2B":
-            LINEAR="Y"
-            ROTARY="B"
-            g_code.append("( Rounding B-axis, Linear axis is Y-axis)")
-        elif Wrap == "Y2B":
-            LINEAR="X"
-            ROTARY="B"
-            g_code.append("( Rounding B-axis, Linear axis is X-axis)")
-        elif Wrap == "X2A":
-            LINEAR="Y"
-            ROTARY="A"
-            g_code.append("( Rounding A-axis, Linear axis is Y-axis)")
-            
-        g_code.append("(A nominal stock radius of %f was used.             )" %(Rstock))
-        g_code.append("(Z-axis zero position is the surface of the round stock.  )")
-        g_code.append("(---------------------------------------------------------)")    
-        g_code.append("G90   (set absolute distance mode)")
-        #g_code.append("G90.1 (set absolute distance mode for arc centers)")
-        #g_code.append("G17   (set active plane to XY)")
-        
-        if self.units == "in":
-            g_code.append("G20   (set units to inches)")
-        else:
-            g_code.append("G21   (set units to mm)")
-            
-        if no_variables==False:
-            FORMAT = "#<z_safe> = %% .%df" %(PLACES_L)
-            g_code.append(FORMAT %(plunge_feed))
-
-            #FORMAT= "#<plunge_feed> = %% .%df" %(PLACES_F)
-            FORMAT = "#<plunge_feed> = %s" %(FORMAT_FEED)
-
-            g_code.append(FORMAT %(plunge_feed))
-
-        for line in preamble.split('|'):
-            g_code.append(line)
-
-        g_code.append("(---------------------------------------------------------)")
-        ###################
-        ## GCODE WRITING ##
-        ###################
-
-        if no_variables==False:
-            g_code.append("G0 Z#<z_safe>")
-        else:
-            FORMAT = "G0 Z%%.%df" %(PLACES_L)
-            g_code.append(FORMAT %(z_safe) )
-
-        FORMAT = "G0 %%c%%.%df %%c%%.%df" %(PLACES_L,PLACES_R)
-        g_code.append(FORMAT %(LINEAR, Lmin_tp, ROTARY, 0.0) )
-        
-        FORMAT = "G1 Z%%.%df F%s" %(PLACES_L,FORMAT_FEED)
-        g_code.append(FORMAT %(cut_depth, plunge_feed ) )
-     
-        Angle = 0
-
-        Dangle = 360.0*sign
-        Angle  = Angle + Dangle
-        if FSCALE == "Scale-Rotary":
-            Dist   = radians(Dangle)*Rstock
-            Feed_adj = abs(Dangle / (Dist/feed) )
-        FORMAT="G1 %%c%%.%df F%s" %(PLACES_R,FORMAT_FEED)
-        g_code.append(FORMAT %(ROTARY, Angle, Feed_adj) )
-
-        Dangle = 360*(Lmax_tp-Lmin_tp)/(tool_dia*step_over/100)*sign
-        Angle  = Angle + Dangle
-        if FSCALE == "Scale-Rotary":
-            Dist   = sqrt((radians(Dangle)*Rstock)**2 + (Lmax_tp-Lmin_tp)**2)
-            Fdist  = Lmax_tp-Lmin_tp
-            Feed_adj = abs( Fdist / (Dist/feed) )
-        FORMAT = "G1 %%c%%.%df %%c%%.%df F%s" %(PLACES_L, PLACES_R, FORMAT_FEED)
-        g_code.append(FORMAT %(LINEAR, Lmax_tp, ROTARY, Angle, Feed_adj) )
-
-
-        Dangle = 360.0*sign
-        Angle  = Angle + Dangle
-        if FSCALE == "Scale-Rotary":
-            Dist   = abs(radians(Dangle)*Rstock)
-            Feed_adj = abs(Dangle / (Dist/feed) )
-        FORMAT = "G1 %%c%%.%df F%s" %(PLACES_R,FORMAT_FEED)
-        g_code.append(FORMAT %(ROTARY, Angle, Feed_adj) )
-
-
-        if no_variables==False:
-            g_code.append("G0 Z #<z_safe>")
-        else:
-            FORMAT = "G0 Z%%.%df" %(PLACES_L)
-            g_code.append(FORMAT %(z_safe) )
-                
-        ########################
-        ## END G-CODE WRITING ##
-        ########################
-        for entry in postamble.split('|'):
-            g_code.append(entry)
-        g_code.append("M5 M2")
-        return g_code
-
 
     def app_gcode_line(self,LINE,CODE,VALUE,PLACES,WriteAll):
         if isinstance(VALUE, complex):

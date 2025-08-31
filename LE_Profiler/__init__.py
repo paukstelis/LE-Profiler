@@ -625,7 +625,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                             if z_mod > nominal_depth:
                                 z_mod = nominal_depth
                                 if depth == 1 and ease_down:
-                                    fract = nominal_depth/20
+                                    fract = nominal_depth/60
                                     z_mod = fract*(i+1)
                                     facet_list.append(f"(Ease down step with z_mod: {z_mod:.2f})")
                                     if z_mod > nominal_depth:
@@ -636,13 +636,15 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                             a_move = current_a
                             if seg_rot:
                                 a_move = current_a + (seg_rot * i * a_direction)
+                            #is this correct?
                             if self.do_oval:
-                                z_mod = z_mod + self.ovality_mod(x, current_a)
+                                self._logger.debug(f"Pre-oval depth at {current_a}: {z_mod}")
+                                oval_mod = -self.ovality_mod(x, current_a)
+                                z_mod = z_mod + oval_mod
+                                self._logger.debug(f"Post-oval depth at {current_a}: {z_mod}")
                             trans_x, trans_z = self.cut_depth_value(coord, -z_mod)  # Adjust depth
                             #handle A rotation parameter
-                        
-                            
-                            
+
                             facet_list.append(f"G93 G1 X{trans_x:.3f} Z{trans_z:.3f} A{a_move:.3f} B{coord['B']:.3f} F{feed:.1f}")
                             i += 1
                         a_direction *= -1        
@@ -811,10 +813,13 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     else:
                         current_a = base_a
 
+                    #depth is already negative here so this is fine...
                     if self.do_oval:
+                        self._logger.debug(f"Pre-oval depth at {current_a}: {depth}")
                         depth_mod = self.ovality_mod(each, current_a)
                         depth = depth + depth_mod
-                        #self._logger.info(f"Applying ovality mod: {depth_mod:.3f} at X={each}, A={current_a:.3f}")
+                        self._logger.debug(f"Post-oval depth at {current_a}: {depth}")
+                       
                     trans_x, trans_z = self.cut_depth_value(coord, depth)
                     command_list.append(
                         f"G93 G90 G1 X{trans_x:.3f} Z{trans_z:.3f} A{current_a:.3f} B{coord['B']:.3f} F{feed:.1f}"
@@ -838,6 +843,9 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 newfile.write(f"\n{line}")
 
     def generate_wrap_job(self):
+        #TODO: It makes  more sense to go back and write a parser explicity for this.
+        # GcodeRipper works, but is quite clunky
+
         #create profile from diameter reference
         profile_points = []
         
@@ -910,7 +918,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 if not isinstance(line[1][3], complex):
                     first_z = line[1][2]
                 if not isinstance(line[1][1], complex):
-                    first_x = line[1][0]
+                    first_x = line[1][1]
                     break
 
 
@@ -929,17 +937,23 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             newfile.write(f"G0 {safe}{sign}{10+self.clearance:0.4f}\n")
             newfile.write(f"G0 X{first_x:0.2f}\n")
             #single case
-            while repeats:
-                for line in self.gcr.generategcode(temp,Rstock=self.diam/2,no_variables=True,Wrap="SPECIAL",FSCALE="None"):
-                    if repeats > 1 and line.startswith("M30"):
+            a_offset = 0
+            for j in range(0, self.segments):
+                if self.do_oval:
+                    a_offset=arots*j
+                for line in self.gcr.generategcode(temp,
+                                                   Rstock=self.diam/2,
+                                                   no_variables=True,
+                                                   Wrap="SPECIAL",
+                                                   FSCALE="None",
+                                                   do_oval=self.do_oval,
+                                                   a_offset=a_offset):
+                    if j < self.segments and line.startswith("M30"):
                         continue
                     else:
                         newfile.write(f"\n{line}")
-                repeats -= 1
-                if repeats:
-                    newfile.write("\nG0 A0")
-                    newfile.write(f"\nG0 A{arots:0.4f}")
-                    newfile.write("\nG92 A0")
+                newfile.write("\nG0 A0")
+                newfile.write(f"\nG0 A{a_offset:0.4f}")
             
     def is_api_protected(self):
         return True
