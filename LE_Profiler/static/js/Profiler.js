@@ -425,7 +425,7 @@ $(function() {
                 self.pd = data.pd;
                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Width'));
                 self.annotations.push({
-                    x: 4,
+                    x: 0,
                     y: 1,
                     xref: 'paper',
                     yref: 'paper',
