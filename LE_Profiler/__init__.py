@@ -296,20 +296,28 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         return depth
     
     def x_to_arc(self, profile_points, distance, start=True):
-        #returns the X coordinate in our profile point that will give the arc of the length, distance
         if start:
             x_ref = profile_points[0]
-            bracket= (x_ref, profile_points[-1])
+            bracket = (profile_points[-1], x_ref)
         else:
-            x_ref =  profile_points[-1]
-            bracket= (x_ref, profile_points[0])
+            self._logger.info("x_to_arc start is False")
+            x_ref = profile_points[-1]
+            bracket = (x_ref, profile_points[0])
 
         def arc_length(x_target):
-            integral, _ = quad(lambda x: (1 + self.spline.derivative()(x) ** 2) ** 0.5, x_ref, x_target,limit=500)
+            integral, _ = quad(lambda x: (1 + self.spline.derivative()(x) ** 2) ** 0.5, x_ref, x_target, limit=500)
             return integral
+
         def root_func(x):
             return arc_length(x) - distance
-        
+
+        # Check if root exists in bracket
+        f_a = root_func(bracket[0])
+        f_b = root_func(bracket[1])
+        self._logger.info(f"x_to_arc: f(a)={f_a}, f(b)={f_b}, bracket={bracket}, distance={distance}")
+        if f_a * f_b > 0:
+            raise ValueError("x_to_arc: f(a) and f(b) must have different signs. Requested arc length may be too large for profile.")
+
         solution = root_scalar(root_func, bracket=bracket, method='brentq')
         if solution.converged:
             x_raw = solution.root
@@ -392,6 +400,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         command_list.appened(f"(Tool length: {self.tool_length})")
         command_list.append(f"(Segments: {self.segments}, A rotation: {self.arotate})")
         command_list.append(f"(B angle range: {self.min_B} to {self.max_B})")
+        command_list.append(f"(Fixed axis increment: {self.increment})")
+        command_list.append(f"(B-angle smoothing points: {self.smooth_points})")
         #truncate profile beween vMin and vMax
         for each in self.ind_v:
             if each < self.vMin:
@@ -482,6 +492,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         command_list.append(f"(Tool length: {self.tool_length})")
         command_list.append(f"(Segments: {self.segments}, A rotation: {self.arotate})")
         command_list.append(f"(B angle range: {self.min_B} to {self.max_B})")
+        command_list.append(f"(Fixed axis increment: {self.increment})")
+        command_list.append(f"(B-angle smoothing points: {self.smooth_points})")
         step_over = self.step_over * self.cutter_diam
 
         #truncate profile beween vMin and vMax
@@ -689,6 +701,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         command_list.append(f"(Lead-in: {self.leadin}, Lead-out: {self.leadout})")
         command_list.append(f"(Feed: {self.feed})")
         command_list.append(f"(B angle range: {self.min_B} to {self.max_B})")
+        command_list.append(f"(Fixed axis increment: {self.increment})")
+        command_list.append(f"(B-angle smoothing points: {self.smooth_points})")
 
         # Truncate profile between vMin and vMax
         for each in self.ind_v:
@@ -724,19 +738,20 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         # Lead-in/lead-out calculations
         lead_in_x = lead_out_x = total_in_step = total_out_step = in_inc = out_inc = None
         if self.leadin or self.leadout:
-            try:
-                lead_in_x = self.x_to_arc(profile_points, self.leadin, start=True)
-                lead_out_x = self.x_to_arc(profile_points, -self.leadout, start=False)
-                if lead_out_x < lead_in_x:
-                    self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
-                                                            title="Lead-in/Lead-out error",
-                                                            text="Lead-in and lead-out overlap, please adjust values",
-                                                            hide=True,
-                                                            delay=10000,
-                                                            notify_type="error"))
-                    return
-            except:
-                self._logger.info("Yeah leadin/out failed")
+            #try:
+            lead_in_x = self.x_to_arc(profile_points, self.leadin, start=True)
+            lead_out_x = self.x_to_arc(profile_points, -self.leadout, start=False)
+            self._logger.debug(f"lead_in_x: {lead_in_x}, lead_out_x: {lead_out_x}")
+            if lead_out_x < lead_in_x:
+                self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
+                                                        title="Lead-in/Lead-out error",
+                                                        text="Lead-in and lead-out overlap, please adjust values",
+                                                        hide=True,
+                                                        delay=10000,
+                                                        notify_type="error"))
+                return
+            #except:
+            #    self._logger.info("Yeah leadin/out failed")
             total_in_step = int((lead_in_x - profile_points[0])/self.increment)
             total_out_step = int((profile_points[-1] - lead_out_x)/self.increment)
             in_inc = self.step_down/(total_in_step) if total_in_step else 0
@@ -905,7 +920,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                         self.radius_adjust,
                                         self.referenceZ,
                                         self.singleB,
-                                        self.smoothing,
+                                        self.smooth_points,
                                         self.do_oval,
                                         plugin=self)
                                         
@@ -984,8 +999,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             self.name = data["name"]
             self.arotate = float(data["arotate"])
             self.segments = int(data["segments"])
-            self.steps = float(data["steps"])
-            self.smoothing = int(data["smoothing"])
+            self.increment = float(data["steps"])
+            self.smooth_points = int(data["smoothing"])
             if self.segments == 0:
                 self.segments = 1
             self.vMax = float(data["vMax"])

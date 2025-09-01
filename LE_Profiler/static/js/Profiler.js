@@ -14,7 +14,6 @@ $(function() {
         self.min_B = ko.observable(-180);
         self.max_B = ko.observable(180);
         self.start_max = ko.observable(0);
-        self.steps = ko.observable(1.0);
         self.smoothing = ko.observable(6);
         self.side = ko.observable("front");
         self.Arot = ko.observable(0);
@@ -23,13 +22,12 @@ $(function() {
         self.leadin = ko.observable(0);
         self.leadout = ko.observable(0);
         self.smooth_points = ko.observable(4);
-        self.increment = ko.observable(0.5);
+        self.increment = ko.observable(0.25);
         self.reversed = false;
         self.isZFile = false;
         self.isXFile = false;
         self.name = null;
         self.pd = null;
-
         self.wrapfiles = null;
         self.scans = null;
 
@@ -537,7 +535,7 @@ $(function() {
                 width: self.width,
                 radius_adjust: self.radius_adjust(),
                 singleB: self.singleB(),
-                steps: self.steps(),
+                steps: self.increment(),
                 smoothing: self.smoothing(),
                 step_over: self.step_over(),
                 tool_diam: self.tool_diam(),

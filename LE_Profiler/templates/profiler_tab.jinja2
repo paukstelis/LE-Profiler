@@ -190,17 +190,11 @@
                     <summary>Super Advanced Features</summary>
                     <div>
                         <label for="steps">Step size (mm):
-                            <input id="increments" type="number" value="1" step="any" data-bind="value: steps">
+                            <input id="increments" type="number" value="1" step="any" data-bind="value: increment">
                         </label>
                     </div>
 
-                    <div class="flute laser">
-                        <label for="risky">Minimal clearance:
-                            <input id="risky" type="checkbox" data-bind="checked: risky">
-                        </label>
-                    </div>
-
-                    <div class="wrap">
+                    <div class="wrap flute facet laser">
                         <label for="smoothing">B-angle smoothing (points):
                             <input id="smoothing" type="number" min="1" value="6" step="" data-bind="value: smoothing">
                         </label>
