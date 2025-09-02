@@ -272,7 +272,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
     
     def lead_calc(self, type, nominal_depth, step, inc):
         depth = nominal_depth
-        self._logger.info(f"type={type}, nd={nominal_depth}, step={step}, inc={inc}")
+        self._logger.debug(f"type={type}, nd={nominal_depth}, step={step}, inc={inc}")
         if type == "in":
             if self.axis == "X":
                 depth = nominal_depth + inc*step
@@ -296,37 +296,31 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         return depth
     
     def x_to_arc(self, profile_points, distance, start=True):
+        #returns the X coordinate in our profile point that will give the arc of the length, distance
+        pp = profile_points
+        
         if start:
-            x_ref = profile_points[0]
-            bracket = (profile_points[-1], x_ref)
+            x_ref = pp[0]
+            bracket= (x_ref, pp[-1])
         else:
-            self._logger.info("x_to_arc start is False")
-            x_ref = profile_points[-1]
-            bracket = (x_ref, profile_points[0])
+            x_ref =  pp[-1]
+            bracket= (x_ref, pp[0])
 
         def arc_length(x_target):
-            integral, _ = quad(lambda x: (1 + self.spline.derivative()(x) ** 2) ** 0.5, x_ref, x_target, limit=500)
+            integral, _ = quad(lambda x: math.sqrt(1 + self.spline.derivative()(x) ** 2), x_ref, x_target,limit=500)
             return integral
-
         def root_func(x):
             return arc_length(x) - distance
-
-        # Check if root exists in bracket
-        f_a = root_func(bracket[0])
-        f_b = root_func(bracket[1])
-        self._logger.info(f"x_to_arc: f(a)={f_a}, f(b)={f_b}, bracket={bracket}, distance={distance}")
-        if f_a * f_b > 0:
-            raise ValueError("x_to_arc: f(a) and f(b) must have different signs. Requested arc length may be too large for profile.")
-
+        
         solution = root_scalar(root_func, bracket=bracket, method='brentq')
         if solution.converged:
             x_raw = solution.root
-            closest_x = min(profile_points, key=lambda x: abs(x - x_raw))
+            closest_x = min(pp, key=lambda x: abs(x - x_raw))
             self._logger.info(f"converged solution: {solution.root}, closest: {closest_x}")
             return closest_x
         else:
             raise ValueError("Failed to find X coordinate for the given arc length.")
-
+        
     def calc_feedrate(self, coord1, coord2):
         x1, z1 = coord1["X"], coord1["Z"]
         x2, z2 = coord2["X"], coord2["Z"]
@@ -691,6 +685,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
     def generate_flute_job(self):
         self._logger.info("Starting Flute job")
+
         command_list = []
         profile_points = []
         command_list.append(f"(LatheEngraver Flute job)")
@@ -712,16 +707,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 continue
             profile_points.append(each)
         
-        # Reverse the profile for Z axis
-        if self.axis == "Z":
-            profile_points.reverse()
-
-        if self.axis == "X":
-            z_at_min = self.spline(self.vMin)
-            z_at_max = self.spline(self.vMax)
-            if z_at_max < z_at_min:
-                profile_points.reverse()
-
         # Calculate depth passes
         pass_info = divmod(self.depth, self.step_down)
         passes = pass_info[0]
@@ -739,25 +724,58 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         lead_in_x = lead_out_x = total_in_step = total_out_step = in_inc = out_inc = None
         if self.leadin or self.leadout:
             #try:
-            lead_in_x = self.x_to_arc(profile_points, self.leadin, start=True)
-            lead_out_x = self.x_to_arc(profile_points, -self.leadout, start=False)
-            self._logger.debug(f"lead_in_x: {lead_in_x}, lead_out_x: {lead_out_x}")
-            if lead_out_x < lead_in_x:
-                self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
+            if self.axis == "Z":
+                #swap for Z
+                lead_out_x = self.x_to_arc(profile_points, self.leadout, start=True)
+                lead_in_x = self.x_to_arc(profile_points, -self.leadin, start=False)
+            else:
+                lead_in_x = self.x_to_arc(profile_points, self.leadin, start=True)
+                lead_out_x = self.x_to_arc(profile_points, -self.leadout, start=False)
+            self._logger.debug(f"lead_in_val: {lead_in_x}, lead_out_val: {lead_out_x}")
+
+            if self.axis == "X":
+                if lead_out_x < lead_in_x:
+                    self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
                                                         title="Lead-in/Lead-out error",
                                                         text="Lead-in and lead-out overlap, please adjust values",
                                                         hide=True,
                                                         delay=10000,
                                                         notify_type="error"))
-                return
-            #except:
-            #    self._logger.info("Yeah leadin/out failed")
-            total_in_step = int((lead_in_x - profile_points[0])/self.increment)
-            total_out_step = int((profile_points[-1] - lead_out_x)/self.increment)
-            in_inc = self.step_down/(total_in_step) if total_in_step else 0
-            out_inc = self.step_down/(total_out_step) if total_out_step else 0
-            self._logger.info(f"steps lead-in: {total_in_step}, lead-out {total_out_step}")
-            self._logger.info(f"increment for lead-in: {in_inc}, lead-out {out_inc}") 
+                    return
+
+                total_in_step = int((lead_in_x - profile_points[0])/self.increment)
+                total_out_step = int((profile_points[-1] - lead_out_x)/self.increment)
+                in_inc = self.step_down/(total_in_step) if total_in_step else 0
+                out_inc = self.step_down/(total_out_step) if total_out_step else 0
+                self._logger.info(f"steps lead-in: {total_in_step}, lead-out {total_out_step}")
+                self._logger.info(f"increment for lead-in: {in_inc}, lead-out {out_inc}")
+
+            if self.axis == "Z":
+                if lead_out_x > lead_in_x:
+                    self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
+                                                        title="Lead-in/Lead-out error",
+                                                        text="Lead-in and lead-out overlap, please adjust values",
+                                                        hide=True,
+                                                        delay=10000,
+                                                        notify_type="error"))
+                    return
+                self._logger.debug(f"Z, profile_points first/last: {profile_points[0]}, {profile_points[-1]}")
+                total_in_step = abs(int((lead_in_x - profile_points[-1])/self.increment))
+                total_out_step = abs(int((profile_points[0] - lead_out_x)/self.increment))
+                in_inc = self.step_down/(total_in_step) if total_in_step else 0
+                out_inc = self.step_down/(total_out_step) if total_out_step else 0
+                self._logger.info(f"steps lead-in: {total_in_step}, lead-out {total_out_step}")
+                self._logger.info(f"increment for lead-in: {in_inc}, lead-out {out_inc}")
+            
+        # Reverse the profile for Z axis
+        if self.axis == "Z":
+            profile_points.reverse()
+        
+        if self.axis == "X":
+            z_at_min = self.spline(self.vMin)
+            z_at_max = self.spline(self.vMax)
+            if z_at_max < z_at_min:
+                profile_points.reverse()
 
         # Preamble
         command_list.append("G21")
@@ -797,24 +815,28 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 else:
                     points_iter = [(i, v) for i, v in zip(range(len(profile_points)-1, -1, -1), reversed(profile_points))]
 
+                #TODO this is not working for lead-ins/outs!!!!
                 for idx, each in points_iter:
+                    # Calculate position from start and end for current direction
                     if flute_dir == 1:
-                        i = idx
-                        steps_from_end = len(profile_points) - 1 - i
-                        leadin_idx = i
-                        leadout_idx = steps_from_end
+                        position_from_start = idx
+                        position_from_end = len(profile_points) - 1 - idx
+                        leadin_check = position_from_start
+                        leadout_check = position_from_end
                     else:
-                        i = idx
-                        steps_from_end = len(profile_points) - 1 - i
-                        # Swap lead-in and lead-out for reverse pass
-                        leadin_idx = steps_from_end
-                        leadout_idx = i
+                        position_from_start = len(profile_points) - 1 - idx
+                        position_from_end = idx
+                        # SWAP lead-in and lead-out checks for reverse pass
+                        leadin_check = position_from_end
+                        leadout_check = position_from_start
 
                     depth = nominal_depth
-                    if self.leadin and total_in_step and leadin_idx < total_in_step:
-                        depth = self.lead_calc("in", nominal_depth, total_in_step - leadin_idx, in_inc)
-                    if self.leadout and total_out_step and leadout_idx < total_out_step:
-                        depth = self.lead_calc("out", nominal_depth, total_out_step - leadout_idx, out_inc)
+                    if self.leadin and total_in_step and leadin_check < total_in_step:
+                        depth = self.lead_calc("in", nominal_depth, total_in_step - leadin_check, in_inc)
+                        command_list.append(f"(lead in, index:{leadin_check} inc:{in_inc} depth:{depth})")
+                    if self.leadout and total_out_step and leadout_check < total_out_step:
+                        depth = self.lead_calc("out", nominal_depth, total_out_step - leadout_check, out_inc)
+                        command_list.append(f"(lead out, index:{leadout_check} inc:{out_inc} depth:{depth})")
 
                     coord = self.calc_coords(each)
                     if previous_coord:
@@ -824,17 +846,16 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     previous_coord = coord
 
                     if seg_rot:
-                        current_a = base_a + seg_rot * i
+                        current_a = base_a + seg_rot * idx
                     else:
                         current_a = base_a
 
-                    #depth is already negative here so this is fine...
                     if self.do_oval:
                         self._logger.debug(f"Pre-oval depth at {current_a}: {depth}")
                         depth_mod = self.ovality_mod(each, current_a)
                         depth = depth + depth_mod
                         self._logger.debug(f"Post-oval depth at {current_a}: {depth}")
-                       
+
                     trans_x, trans_z = self.cut_depth_value(coord, depth)
                     command_list.append(
                         f"G93 G90 G1 X{trans_x:.3f} Z{trans_z:.3f} A{current_a:.3f} B{coord['B']:.3f} F{feed:.1f}"

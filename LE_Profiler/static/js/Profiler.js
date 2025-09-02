@@ -10,7 +10,7 @@ $(function() {
         self.smoothedZValues = [];  // Store smoothed Z values
         self.annotations = [];
         self.markerAction = ko.observable("zeroPoint");
-        self.tool_length = ko.observable(135);
+        self.tool_length = ko.observable(0);
         self.min_B = ko.observable(-180);
         self.max_B = ko.observable(180);
         self.start_max = ko.observable(0);
@@ -132,7 +132,8 @@ $(function() {
             $(".zscan").hide();
 
             self.smooth_points = self.settings.smooth_points;
-            self.tool_length = self.settings.tool_length;
+            //burned by this several times now....just force the user to put in the value
+            //self.tool_length = self.settings.tool_length;
             self.increment = self.settings.increment;
 
         };
@@ -496,6 +497,11 @@ $(function() {
             if (self.step_down > self.depth
                 || self.step_down <= 0) {
                 alert("Step down must be less than or equal to total depth and greater than 0.");
+                return;
+            }
+
+            if (self.tool_length == 0) {
+                alert("You must enter a tool length!");
                 return;
             }
 
