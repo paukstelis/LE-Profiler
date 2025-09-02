@@ -23,6 +23,8 @@ $(function() {
         self.leadout = ko.observable(0);
         self.smooth_points = ko.observable(4);
         self.increment = ko.observable(0.25);
+        self.adaptive = ko.observable(0);
+        self.feedscale = ko.observable(1.0);
         self.reversed = false;
         self.isZFile = false;
         self.isXFile = false;
@@ -547,6 +549,8 @@ $(function() {
                 tool_diam: self.tool_diam(),
                 facet_invert: self.facet_invert(),
                 depth_mod: self.depth_mod(),
+                adaptive: self.adaptive(),
+                feedscale: self.feedscale(),S
             };
     
             OctoPrint.simpleApiCommand("profiler", "write_job", data)

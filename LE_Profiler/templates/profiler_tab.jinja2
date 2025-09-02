@@ -205,6 +205,16 @@
                             <input id="singleB" type="checkbox" data-bind="checked: singleB">
                         </label>
                     </div>
+                      <div class="flute facet">
+                        <label title="Scales up feedrate during shallow passes. Up to max scale value." for="adaptive">Use adaptive feed rates:</label>
+                            <input id="adaptive" type="checkbox" data-bind="checked: adaptive">
+                        
+                    </div>
+                    <div class="flute facet">
+                        <label for="fmod1">Adaptive feedrate max scale:</label>
+                            <input id="fmod1" type="number" min="1" max="10" step="any" data-bind="value: feedscale">
+                        
+                    </div>
                 </details>
             </div>
         </div>
