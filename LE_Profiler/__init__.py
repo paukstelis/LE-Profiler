@@ -1043,8 +1043,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             #single case
             a_offset = 0
             for j in range(0, self.segments):
-                if self.do_oval:
-                    a_offset=arots*j
+                a_offset=arots*(j)
                 for line in self.gcr.generategcode(temp,
                                                    Rstock=self.diam/2,
                                                    no_variables=True,
@@ -1057,7 +1056,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     else:
                         newfile.write(f"\n{line}")
                 newfile.write("\nG0 A0")
-                newfile.write(f"\nG0 A{a_offset:0.4f}")
+                next_a = a_offset+arots
+                newfile.write(f"\nG0 A{next_a:0.4f}")
 
         self.send_le_clear()
 
