@@ -57,8 +57,10 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.singleB = False
         self.risky_clearance = False
         self.invert_facet = False
+        self.do_oval = False
         self.adaptive = False
         self.feedscale = 1.0
+        self.writing = False
         #self.watched_path = self._settings.global_get_basefolder("watched")
 
     def initialize(self):
@@ -394,6 +396,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         return distance
     
     def generate_laser_job(self):
+        data = dict(title="Writing Gcode...", text="Laser job is writing.", delay=60000, type="info")
+        self.send_le_message(data)
         command_list = []
         pass_list = []
         profile_points = []
@@ -493,8 +497,12 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             for line in command_list:
                 newfile.write(f"\n{line}")
 
+        self.send_le_clear()
+
     def generate_facet_job(self):
         self._logger.info("Starting Facet job")
+        data = dict(title="Writing Gcode...", text="Facet job is writing.", delay=600000, type="info")
+        self.send_le_message(data)
         command_list = []
         profile_points = []
         command_list.append(f"(LatheEngraver Facet job)")
@@ -504,6 +512,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         command_list.append(f"(B angle range: {self.min_B} to {self.max_B})")
         command_list.append(f"(Fixed axis increment: {self.increment})")
         command_list.append(f"(B-angle smoothing points: {self.smooth_points})")
+        command_list.append(f"(Ovality compensation: {self.do_oval})")
         step_over = self.step_over * self.cutter_diam
 
         #truncate profile beween vMin and vMax
@@ -529,13 +538,13 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         command_list.append(f"(Max radius: {max_radius})")
         #This is maximum negative Z at the largest radius of the piece
         max_z = max_radius*(1 - math.cos(math.pi/self.segments))
-        command_list.append(f"(Max Z: {max_z})")
+        command_list.append(f"(Max Z: {max_z:0.2f})")
         #may use a scale factor here to modify max_z by some amount to avoid perfectly flat cuts
         max_z = max_z * self.depth_mod
-        command_list.append(f"(Max Z with scaling: {max_z})")
+        command_list.append(f"(Max Z with scaling: {max_z:0.2f})")
         if self.depth and max_z > self.depth:
             max_z = self.depth
-            command_list.append(f"(Max Z limited to {self.depth})")
+            command_list.append(f"(Max Z limited to {self.depth:0.2f})")
         pass_info = divmod(max_z, self.step_down)
         passes = pass_info[0] #quotient
         last_pass_depth = pass_info[1] #remainder
@@ -572,11 +581,9 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         safe_position_start = f"G0 X{safe_x_start:0.4f} Z{safe_z_start:0.4f} B{start['B']:0.4f}"
         safe_position_end = f"G0 X{safe_x_end:0.4f} Z{safe_z_end:0.4f} B{end['B']:0.4f}"
 
-        
         current_a = 0
         a_direction = 1
         max_zmod = 0
-        current_a = start_a
         a_measure = start_a
         ease_down = True
 
@@ -587,13 +594,14 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             command_list.append(f"G0 B{start['B']:0.4f}")
             command_list.append(f"G0 X{safe_x_start:0.4f}")
             command_list.append(f"G0 Z{safe_z_start:0.4f}")
-
+            current_a = current_a+start_a
+            a_measure = current_a
             for a_step in range(num_a_steps):
                 section_done = False
                 max_zmod = 0
                 previous_depth = 0    
-                if a_measure > end_a:
-                    continue
+                #if a_measure > end_a:
+                #    continue
                 facet_list.append(f"(Facet A angle step {a_step+1} of {num_a_steps})")
                 facet_list.append(f"(Current A angle: {current_a:.3f})")
                 facet_list.append(f"(A measure: {a_measure:.3f})")
@@ -621,7 +629,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     if not section_done:
                         
                         x_iter = profile_points if a_direction == 1 else reversed(profile_points)
-                        facet_list.append(f"(Facet depth pass {depth} with nominal depth: {nominal_depth})")
+                        
                         for x in x_iter:
                             coord = self.calc_coords(x)
                             retract_x, retract_z = self.cut_depth_value(coord, 5)
@@ -679,6 +687,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                 oval_mod = -self.ovality_mod(x, current_a)
                                 z_mod = z_mod + oval_mod
                                 self._logger.debug(f"Post-oval depth at {current_a}: {z_mod}")
+                            facet_list.append(f"(Facet depth pass {depth} with depth: {z_mod})")
                             trans_x, trans_z = self.cut_depth_value(coord, -z_mod)  # Adjust depth
                             #handle A rotation parameter
 
@@ -697,9 +706,12 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 a_measure += delta_degrees
                 facet_list.append(f"G0 X{retract_x:.3f} Z{retract_z:.3f} B{coord['B']:.3f}")
                 
-            
             command_list.extend(facet_list)
-            command_list.append(f"G0 A{facet_angle:0.3f}")
+            #rotate to next segment
+            next_start = facet_angle*(j+1)
+            current_a = next_start
+            a_measure = next_start
+            command_list.append(f"G0 A{next_start:0.3f}")
             #command_list.append("G92 A0")
        
         command_list.append("M5")
@@ -713,9 +725,12 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         with open(path_on_disk,"w") as newfile:
             for line in command_list:
                 newfile.write(f"\n{line}")
+        self.send_le_clear()
 
     def generate_flute_job(self):
         self._logger.info("Starting Flute job")
+        data = dict(title="Writing Gcode...", text="Flute job is writing.", delay=60000, type="info")
+        self.send_le_message(data)
 
         command_list = []
         profile_points = []
@@ -928,13 +943,16 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             for line in command_list:
                 newfile.write(f"\n{line}")
 
+        self.send_le_clear()
+
     def generate_wrap_job(self):
         #TODO: It makes  more sense to go back and write a parser explicity for this.
         # GcodeRipper works, but is quite clunky
 
         #create profile from diameter reference
         profile_points = []
-        
+        data = dict(title="Writing Gcode...", text="Wrap job is writing.", delay=60000, type="info")
+        self.send_le_message(data)
         #truncate profile beween vMin and vMax
         for each in self.ind_v:
             if each < self.vMin:
@@ -1040,7 +1058,26 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                         newfile.write(f"\n{line}")
                 newfile.write("\nG0 A0")
                 newfile.write(f"\nG0 A{a_offset:0.4f}")
-            
+
+        self.send_le_clear()
+
+    def send_le_message(self, data):
+        
+        payload = dict(
+            type="simple_notify",
+            title=data["title"],
+            text=data["text"],
+            hide=True,
+            delay=data["delay"],
+            notify_type=data["type"]
+        )
+
+        self._plugin_manager.send_plugin_message("latheengraver", payload)
+
+    def send_le_clear(self):
+        self._plugin_manager.send_plugin_message("latheengraver", dict(type='clear_all'))
+        self._logger.debug("Cleared notification")
+
     def is_api_protected(self):
         return True
     

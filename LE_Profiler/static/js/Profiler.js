@@ -550,7 +550,7 @@ $(function() {
                 facet_invert: self.facet_invert(),
                 depth_mod: self.depth_mod(),
                 adaptive: self.adaptive(),
-                feedscale: self.feedscale(),S
+                feedscale: self.feedscale(),
             };
     
             OctoPrint.simpleApiCommand("profiler", "write_job", data)
