@@ -988,7 +988,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                                                     [xtoscale,sf,1,1],
                                                                     0,
                                                                     split_moves=True,
-                                                                    min_seg_length=self.steps)
+                                                                    min_seg_length=self.increment)
         #self._logger.info(temp)
         midx = (minx+maxx)/2
         midy = (miny+maxy)/2
