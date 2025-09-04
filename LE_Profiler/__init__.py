@@ -61,6 +61,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.adaptive = False
         self.feedscale = 1.0
         self.writing = False
+
         #self.watched_path = self._settings.global_get_basefolder("watched")
 
     def initialize(self):
@@ -462,6 +463,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             else:
                 feed = self.feed
             pass_list.append(f"G93 G90 G1 X{coord['X']:0.3f} Z{coord['Z']:0.3f} A{seg_rot*i:0.3f} B{coord['B']:0.3f} F{feed}")
+
             previous_coord = coord
         #make sure we move back to last A position before starting reverse pass
         pass_list.append(f"G0 A{seg_rot*i:0.3f}")    
@@ -965,7 +967,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         basefolder = self._settings.getBaseFolder("uploads")
         self.gcr.Read_G_Code(f"{basefolder}/{self.selected_file}", XYarc2line=True, units="mm")
         #profile name
-        self._logger.info(self.gcr.g_code_data)
+        self._logger.debug(self.gcr.g_code_data)
         #make the first move a safe X,Z move
 
         profile_name = self.name.removesuffix(".txt")
@@ -1136,6 +1138,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
                 #self.start_max = bool(data["start"])
                 self.generate_laser_job()
+                return
 
             if self.mode == "flute":
                 self.depth = float(data["depth"])
@@ -1145,6 +1148,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self.adaptive = bool(data["adaptive"])
                 self.feedscale = float(data["feedscale"])
                 self.generate_flute_job()
+                return
             
             if self.mode == "wrap":
                 self.referenceZ = float(data["refZ"])
@@ -1154,6 +1158,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self.radius_adjust = bool(data["radius_adjust"])
                 self.singleB = bool(data["singleB"])
                 self.generate_wrap_job()
+                return
             
             if self.mode == "facet":
                 self.referenceZ = float(data["refZ"])
@@ -1184,6 +1189,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                                                     notify_type="error"))
                     return
                 self.generate_facet_job()
+                return
         if command == "get_arc_length":
             self.vMax = float(data["vMax"])
             self.vMin = float(data["vMin"])

@@ -14,7 +14,8 @@ plugin_package = "LE_Profiler"
 plugin_name = "LE-Profiler"
 
 # The plugin's version. Can be overwritten within OctoPrint's internal data via __plugin_version__ in the plugin module
-plugin_version = "0.1.7"
+plugin_version = "0.1.10"
+
 
 # The plugin's description. Can be overwritten within OctoPrint's internal data via __plugin_description__ in the plugin
 # module
@@ -27,7 +28,7 @@ plugin_author = "Transpiration Turning"
 plugin_author_email = "transpirationturning@gmail.com"
 
 # The plugin's homepage URL. Can be overwritten within OctoPrint's internal data via __plugin_url__ in the plugin module
-plugin_url = "https://github.com/paukstelis/OctoPrint-Laserprofile"
+plugin_url = "https://github.com/paukstelis/OctoPrint-LE-Profiler"
 
 # The plugin's license. Can be overwritten within OctoPrint's internal data via __plugin_license__ in the plugin module
 plugin_license = "AGPLv3"
