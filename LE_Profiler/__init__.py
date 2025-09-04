@@ -1130,7 +1130,11 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             self.create_spline()
 
             if self.do_oval:
-                self.create_a_spline()
+                if bool(data["ignore_oval"]):
+                    self.do_oval = False
+                    self._logger.debug("Ignoring ovality measurements")
+                else:
+                    self.create_a_spline()
 
             if self.mode == "laser":
                 self.test = bool(data["test"])
