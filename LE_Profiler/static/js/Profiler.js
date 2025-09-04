@@ -25,6 +25,7 @@ $(function() {
         self.increment = ko.observable(0.25);
         self.adaptive = ko.observable(0);
         self.feedscale = ko.observable(1.0);
+        self.ignore_oval = ko.observable(0);
         self.reversed = false;
         self.isZFile = false;
         self.isXFile = false;
@@ -551,6 +552,7 @@ $(function() {
                 depth_mod: self.depth_mod(),
                 adaptive: self.adaptive(),
                 feedscale: self.feedscale(),
+                ignore_oval: self.ignore_oval(),
             };
     
             OctoPrint.simpleApiCommand("profiler", "write_job", data)
