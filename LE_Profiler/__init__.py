@@ -19,9 +19,10 @@ import os
 import math
 from . import G_Code_Rip as G_Code_Rip
 from scipy.interpolate import CubicSpline
+from scipy.interpolate import RectBivariateSpline
 from scipy.integrate import quad
 from scipy.optimize import root_scalar
-
+import numpy as np
 class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
     octoprint.plugin.AssetPlugin,
     octoprint.plugin.StartupPlugin,
@@ -33,8 +34,11 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
     def __init__(self):
         self.plot_data = []
         self.spline = None
-        self.x_coords = []
-        self.z_coords = []
+        self.a_spline = None
+        self.ind_v = []
+        self.dep_v = []
+        self.start_min= None
+        self.start_max = None
         self.tool_length = 0
         self.min_B = float(0)
         self.max_B = float(0)
@@ -53,8 +57,11 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.singleB = False
         self.risky_clearance = False
         self.invert_facet = False
+        self.do_oval = False
         self.adaptive = False
         self.feedscale = 1.0
+        self.writing = False
+
         #self.watched_path = self._settings.global_get_basefolder("watched")
 
     def initialize(self):
@@ -95,6 +102,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         filename = f"{folder}/{filepath}"
         
         datapoints = []
+        segments = []
+        current_segment = []
         with open(filename,"r") as file:
             for line in file:
                 stripped_line = line.strip()
@@ -102,6 +111,10 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     self.axis = 'X'
                 if stripped_line == ";Z":
                     self.axis = 'Z'
+                if stripped_line == "NEXTSEGMENT":
+                    segments.append(current_segment)
+                    current_segment = []
+                    continue
                 if not stripped_line.startswith(";"):
                     # Split the line by comma and convert to floats
                     try:
@@ -109,39 +122,67 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                         # Pad to 3 elements
                         while len(parts) < 3:
                             parts.append(0.0)
-                        datapoints.append(parts)
+                        current_segment.append(parts)
                     except ValueError:
                         pass
-        self._logger.info(datapoints)
+        if not len(segments):
+            segments.append(current_segment)
+        
+        if len(segments) > 1:
+            #zero_segment = list(segments[0])
+            #duplicate zero segment at 360
+            #for each in zero_segment:
+            #    each[2] = 360.0
+            #segments.append(zero_segment)
+            self.do_oval = True
+
+        #self._logger.info(segments)
+        
+        arr = np.array(segments)
         #sort, must be increasing
         if self.axis == 'Z':
-            datapoints = sorted(datapoints, key=lambda x: x[1])
-            min = datapoints[0][1] #smallest X value, should be 0
-            max = datapoints[-1][1] #largest X value
-        if self.axis == 'X':
-            datapoints = sorted(datapoints, key=lambda x: x[0])
-            min = datapoints[0][0] #smallest X value, should be 0
-            max = datapoints[-1][0] #largest X value
+            for seg in segments:
+                seg.sort(key=lambda x: x[1])
+            self.ind_v = [x[1] for x in segments[0]]
+            self.dep_v = [x[0] for x in segments[0]]
+            ind_vals = arr[0, :, 1]
+            A_vals = arr[:, 0, 2]
+            baseline_dep = arr[0, :, 0]
+            dep_raw = arr[:, :, 0]
+            dep_grid = dep_raw - baseline_dep
 
-        self._logger.info(datapoints)
-        self._logger.debug(self.axis)
+        if self.axis == 'X':
+            for seg in segments:
+                seg.sort(key=lambda x: x[0])
+            self.ind_v = [x[0] for x in segments[0]]
+            self.dep_v = [x[1] for x in segments[0]]
+            ind_vals = arr[0, :, 0]
+            A_vals = arr[:, 0, 2]
+            baseline_dep = arr[0, :, 1]
+            dep_raw = arr[:, :, 1]
+            dep_grid = dep_raw - baseline_dep
+
+        min = self.ind_v[0] 
+        max = self.ind_v[-1]
+        #hold on to our reference min and max values if 0,0 changes
+        self.start_min = min
+        self.start_max = max
+        #hold on to original arrays for A spline creation
+        self.ind_vals = ind_vals
+        self.A_vals = A_vals
+        self.dep_grid = dep_grid
 
         generated_data = []
-
-        if self.axis == 'Z':
-            z_profile, x_profile, a_profile = zip(*datapoints)
-        else:
-            x_profile, z_profile, a_profile = zip(*datapoints)
-
-        self.spline = CubicSpline(x_profile, z_profile)
+        #spline used for graphing, all at A=0
+        self.spline = CubicSpline(self.ind_v, self.dep_v)
 
         increment = self.increment
         i = min
         while i <= max:
             z_val = self.spline(i)
             z_val = float(z_val)
-            z_val = f"{z_val:.3f}"
-            x_val = f"{i:.3f}"
+            z_val = f"{z_val:.2f}"
+            x_val = f"{i:.2f}"
             generated_data.append([x_val,z_val])
             i = i+increment
         self._logger.debug(generated_data)
@@ -151,28 +192,49 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self._plugin_manager.send_plugin_message('Profiler', data)
 
     def create_spline(self):
-        self.x_coords = []
-        self.z_coords = []
+        self.ind_v = []
+        self.dep_v = []
 
         if self.axis == "X":
             for each in self.plot_data:
-                self.x_coords.append(float(each["x"]))
-                self.z_coords.append(float(each["z"]))
+                self.ind_v.append(float(each["x"]))
+                self.dep_v.append(float(each["z"]))
         if self.axis == "Z":
             for each in self.plot_data:
-                self.z_coords.append(float(each["x"]))
-                self.x_coords.append(float(each["z"]))
+                self.ind_v.append(float(each["z"]))
+                self.dep_v.append(float(each["x"]))
 
-        self.spline = CubicSpline(self.x_coords, self.z_coords)
+        self.spline = CubicSpline(self.ind_v, self.dep_v)
 
+    def create_a_spline(self):
+        #do any ind_val offsets here?
+        current_max = self.ind_v[-1]
+        current_min = self.ind_v[0]
+        
+        sort_idx = np.argsort(self.ind_vals)
+        self.ind_vals = self.ind_vals[sort_idx]
+        self.dep_grid = self.dep_grid[:, sort_idx]
+
+        self._logger.info(self.ind_vals)
+        self._logger.info(self.dep_grid)
+        A_radians = np.deg2rad(np.mod(self.A_vals, 360.0))
+        if A_radians[0] == 0 and self.A_vals[-1] == 360:
+            A_radians = np.append(A_radians, 2 * np.pi)
+            Z_grid = np.vstack([Z_grid, Z_grid[0]])
+        self.a_spline = RectBivariateSpline(A_radians, self.ind_vals, self.dep_grid, kx=3, ky=3, s=0)
+
+    def ovality_mod(self, x, a_deg):
+        a_wrapped = np.deg2rad(np.mod(a_deg, 360.0))
+        return self.a_spline.ev(a_wrapped, x)
+    
     def calc_coords(self, coord):
        
-        closest = min(self.x_coords, key=lambda x: abs(x - coord))
-        closest_idx = self.x_coords.index(closest)
+        closest = min(self.ind_v, key=lambda x: abs(x - coord))
+        closest_idx = self.ind_v.index(closest)
         half_window = self.smooth_points // 2
         start_idx = max(0, closest_idx - half_window)
-        end_idx = min(len(self.x_coords), closest_idx + half_window + 1)
-        near = self.x_coords[start_idx:end_idx]
+        end_idx = min(len(self.ind_v), closest_idx + half_window + 1)
+        near = self.ind_v[start_idx:end_idx]
         slopes = [self.spline.derivative()(x) for x in near]
         #include the calculated value in the average
         slopes.append(self.spline.derivative()(coord))
@@ -221,7 +283,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
     
     def lead_calc(self, type, nominal_depth, step, inc):
         depth = nominal_depth
-        self._logger.info(f"type={type}, nd={nominal_depth}, step={step}, inc={inc}")
+        self._logger.debug(f"type={type}, nd={nominal_depth}, step={step}, inc={inc}")
         if type == "in":
             if self.axis == "X":
                 depth = nominal_depth + inc*step
@@ -246,15 +308,17 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
     
     def x_to_arc(self, profile_points, distance, start=True):
         #returns the X coordinate in our profile point that will give the arc of the length, distance
+        pp = profile_points
+        
         if start:
-            x_ref = profile_points[0]
-            bracket= (x_ref, profile_points[-1])
+            x_ref = pp[0]
+            bracket= (x_ref, pp[-1])
         else:
-            x_ref =  profile_points[-1]
-            bracket= (x_ref, profile_points[0])
+            x_ref =  pp[-1]
+            bracket= (x_ref, pp[0])
 
         def arc_length(x_target):
-            integral, _ = quad(lambda x: (1 + self.spline.derivative()(x) ** 2) ** 0.5, x_ref, x_target,limit=500)
+            integral, _ = quad(lambda x: math.sqrt(1 + self.spline.derivative()(x) ** 2), x_ref, x_target,limit=500)
             return integral
         def root_func(x):
             return arc_length(x) - distance
@@ -262,12 +326,12 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         solution = root_scalar(root_func, bracket=bracket, method='brentq')
         if solution.converged:
             x_raw = solution.root
-            closest_x = min(profile_points, key=lambda x: abs(x - x_raw))
+            closest_x = min(pp, key=lambda x: abs(x - x_raw))
             self._logger.info(f"converged solution: {solution.root}, closest: {closest_x}")
             return closest_x
         else:
             raise ValueError("Failed to find X coordinate for the given arc length.")
-
+        
     def calc_feedrate(self, coord1, coord2):
         x1, z1 = coord1["X"], coord1["Z"]
         x2, z2 = coord2["X"], coord2["Z"]
@@ -333,16 +397,21 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         return distance
     
     def generate_laser_job(self):
+        data = dict(title="Writing Gcode...", text="Laser job is writing.", delay=60000, type="info")
+        self.send_le_message(data)
         command_list = []
         pass_list = []
         profile_points = []
+        feed = self.feed
         command_list.append(f"(LatheEngraver Laser job)")
         command_list.append(f"(Min and Max values: {self.vMin}, {self.vMax} )")
         command_list.append(f"(Tool length: {self.tool_length})")
         command_list.append(f"(Segments: {self.segments}, A rotation: {self.arotate})")
         command_list.append(f"(B angle range: {self.min_B} to {self.max_B})")
+        command_list.append(f"(Fixed axis increment: {self.increment})")
+        command_list.append(f"(B-angle smoothing points: {self.smooth_points})")
         #truncate profile beween vMin and vMax
-        for each in self.x_coords:
+        for each in self.ind_v:
             if each < self.vMin:
                 continue
             if each > self.vMax:
@@ -393,7 +462,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 feed = self.calc_feedrate(previous_coord, coord)
             else:
                 feed = self.feed
-            pass_list.append(f"G93 G90 G1 X{coord['X']:0.3f} Z{coord['Z']:0.3f} A{seg_rot*i:0.3f} B{coord['B']:0.3f} F{self.feed}")
+            pass_list.append(f"G93 G90 G1 X{coord['X']:0.3f} Z{coord['Z']:0.3f} A{seg_rot*i:0.3f} B{coord['B']:0.3f} F{feed}")
+
             previous_coord = coord
         #make sure we move back to last A position before starting reverse pass
         pass_list.append(f"G0 A{seg_rot*i:0.3f}")    
@@ -429,8 +499,12 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             for line in command_list:
                 newfile.write(f"\n{line}")
 
+        self.send_le_clear()
+
     def generate_facet_job(self):
         self._logger.info("Starting Facet job")
+        data = dict(title="Writing Gcode...", text="Facet job is writing.", delay=600000, type="info")
+        self.send_le_message(data)
         command_list = []
         profile_points = []
         command_list.append(f"(LatheEngraver Facet job)")
@@ -438,10 +512,13 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         command_list.append(f"(Tool length: {self.tool_length})")
         command_list.append(f"(Segments: {self.segments}, A rotation: {self.arotate})")
         command_list.append(f"(B angle range: {self.min_B} to {self.max_B})")
+        command_list.append(f"(Fixed axis increment: {self.increment})")
+        command_list.append(f"(B-angle smoothing points: {self.smooth_points})")
+        command_list.append(f"(Ovality compensation: {self.do_oval})")
         step_over = self.step_over * self.cutter_diam
 
         #truncate profile beween vMin and vMax
-        for each in self.x_coords:
+        for each in self.ind_v:
             if each < self.vMin:
                 continue
             if each > self.vMax:
@@ -463,13 +540,13 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         command_list.append(f"(Max radius: {max_radius})")
         #This is maximum negative Z at the largest radius of the piece
         max_z = max_radius*(1 - math.cos(math.pi/self.segments))
-        command_list.append(f"(Max Z: {max_z})")
+        command_list.append(f"(Max Z: {max_z:0.2f})")
         #may use a scale factor here to modify max_z by some amount to avoid perfectly flat cuts
         max_z = max_z * self.depth_mod
-        command_list.append(f"(Max Z with scaling: {max_z})")
+        command_list.append(f"(Max Z with scaling: {max_z:0.2f})")
         if self.depth and max_z > self.depth:
             max_z = self.depth
-            command_list.append(f"(Max Z limited to {self.depth})")
+            command_list.append(f"(Max Z limited to {self.depth:0.2f})")
         pass_info = divmod(max_z, self.step_down)
         passes = pass_info[0] #quotient
         last_pass_depth = pass_info[1] #remainder
@@ -506,128 +583,138 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         safe_position_start = f"G0 X{safe_x_start:0.4f} Z{safe_z_start:0.4f} B{start['B']:0.4f}"
         safe_position_end = f"G0 X{safe_x_end:0.4f} Z{safe_z_end:0.4f} B{end['B']:0.4f}"
 
-        facet_list = []
         current_a = 0
         a_direction = 1
         max_zmod = 0
-        current_a = start_a
         a_measure = start_a
         ease_down = True
 
-        for a_step in range(num_a_steps):
-            section_done = False
-            max_zmod = 0
-            previous_depth = 0    
-            if a_measure > end_a:
-                continue
-            facet_list.append(f"(Facet A angle step {a_step+1} of {num_a_steps})")
-            facet_list.append(f"(Current A angle: {current_a:.3f})")
-            facet_list.append(f"(A measure: {a_measure:.3f})")
-            facet_list.append(f"G0 A{current_a:.3f}")
-
-            for depth in range(1,total_passes+1):
-                previous_coord = None
-                nominal_depth = depth * self.step_down
-                               
-                if depth > 1:
-                    if nominal_depth >= max_zmod and previous_depth >= max_zmod:
-                        #self._logger.info(f"Max Z mod reached: {max_zmod:.2f}, stopping section")
-                        section_done = True
-                    if nominal_depth >= max_zmod:
-                        nominal_depth = max_zmod
-                
-                self._logger.debug(f"Nominal depth: {nominal_depth}")
-                #this cut depth
-                if depth == 1:
-                    thiscut = nominal_depth
-                else:
-                    thiscut = nominal_depth - previous_depth
-                #self._logger.debug(f"Cut depth on this pass: {thiscut}")
-                previous_depth = nominal_depth
-                i = 0
-                if not section_done:
-                    
-                    x_iter = profile_points if a_direction == 1 else reversed(profile_points)
-                    facet_list.append(f"(Facet depth pass {depth} with nominal depth: {nominal_depth})")
-                    for x in x_iter:
-                        coord = self.calc_coords(x)
-                        retract_x, retract_z = self.cut_depth_value(coord, 5)
-                        if previous_coord:
-                            feed = self.calc_feedrate(previous_coord, coord)
-                        else:
-                            feed = self.feed
-                        previous_coord = coord
-                        
-                        #get radius at our current X position
-                        current_radius = reference_radius + (self.spline(x) - self.referenceZ)
-                        #self._logger.info(f"Current radius: {current_radius}")
-                        #just use z_mod values at max_radius for inverts
-                        if self.invert_facet:
-                            current_radius = max_radius
-                        #get adjusted values for Z
-                        z_mod = self.sagitta_distance(math.radians(a_measure),current_radius)
-                        z_mod = z_mod * self.depth_mod  # Apply depth modifier
-
-                        if self.invert_facet:
-                            z_mod = max_z - z_mod
-    
-                        if z_mod > max_zmod:
-                            max_zmod = z_mod
-                            #self._logger.info(f"New max Z mod: {max_zmod:.2f}")
-
-                        if z_mod > nominal_depth:
-                            z_mod = nominal_depth
-                            if depth == 1 and ease_down:
-                                #make this a setting, more than 20 is probably needed based on last test
-                                fract = nominal_depth/60
-                                z_mod = fract*(i+1)
-                                facet_list.append(f"(Ease down step with z_mod: {z_mod:.2f})")
-                                if z_mod > nominal_depth:
-                                    facet_list.append(f"(Ease down done)")
-                                    z_mod = nominal_depth
-                                    ease_down = False
-
-                        #setting here so if zmod is less than some value, crank up the feed rate
-                        if self.adaptive:
-                            # Scale feed between maxscale (shallow cut) and 1.0 (full step_down)
-                            if thiscut < self.step_down:
-                                scale = (
-                                    self.feedscale+
-                                    (1.0 - self.feedscale) * (thiscut / self.step_down)
-                                )
-                                self._logger.debug(f"feed adjust from {feed} to {feed*scale}")
-                                feed = feed * scale
-
-                        trans_x, trans_z = self.cut_depth_value(coord, -z_mod)  # Adjust depth
-                        #handle A rotation parameter
-                        a_move = current_a
-                        if seg_rot:
-                            a_move = current_a + (seg_rot * i * a_direction)
-                        
-                        facet_list.append(f"G93 G1 X{trans_x:.3f} Z{trans_z:.3f} A{a_move:.3f} B{coord['B']:.3f} F{feed:.1f}")
-                        i += 1
-                    a_direction *= -1        
-                else:
-                    #if we are done with this pass, retract from current position
-                    facet_list.append(f"(Section done, retracting to safe position)")
-                    facet_list.append(f"G0 X{retract_x:.3f} Z{retract_z:.3f} B{coord['B']:.3f}")
-                #if we haven't hit ease down on the first segment, ignore
-                ease_down = False
-                if seg_rot:
-                    current_a = a_move
-            current_a += delta_degrees
-            a_measure += delta_degrees
-            facet_list.append(f"G0 X{retract_x:.3f} Z{retract_z:.3f} B{coord['B']:.3f}")
-                
         for j in range(0, self.segments):
+            facet_list = []
             command_list.append(f"(Starting facet {j+1} of {self.segments})")
             command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
             command_list.append(f"G0 B{start['B']:0.4f}")
             command_list.append(f"G0 X{safe_x_start:0.4f}")
             command_list.append(f"G0 Z{safe_z_start:0.4f}")
+            current_a = current_a+start_a
+            a_measure = current_a
+            for a_step in range(num_a_steps):
+                section_done = False
+                max_zmod = 0
+                previous_depth = 0    
+                #if a_measure > end_a:
+                #    continue
+                facet_list.append(f"(Facet A angle step {a_step+1} of {num_a_steps})")
+                facet_list.append(f"(Current A angle: {current_a:.3f})")
+                facet_list.append(f"(A measure: {a_measure:.3f})")
+                facet_list.append(f"G0 A{current_a:.3f}")
+
+                for depth in range(1,total_passes+1):
+                    previous_coord = None
+                    nominal_depth = depth * self.step_down
+                                
+                    if depth > 1:
+                        if nominal_depth >= max_zmod and previous_depth >= max_zmod:
+                            #self._logger.info(f"Max Z mod reached: {max_zmod:.2f}, stopping section")
+                            section_done = True
+                        if nominal_depth >= max_zmod:
+                            nominal_depth = max_zmod
+                    
+                     #this cut depth
+                    if depth == 1:
+                        thiscut = nominal_depth
+                    else:
+                        thiscut = nominal_depth - previous_depth
+                    #self._logger.debug(f"Cut depth on this pass: {thiscut}")
+                    previous_depth = nominal_depth
+                    i = 0
+                    if not section_done:
+                        
+                        x_iter = profile_points if a_direction == 1 else reversed(profile_points)
+                        
+                        for x in x_iter:
+                            coord = self.calc_coords(x)
+                            retract_x, retract_z = self.cut_depth_value(coord, 5)
+                            if previous_coord:
+                                feed = self.calc_feedrate(previous_coord, coord)
+                            else:
+                                feed = self.feed
+                            previous_coord = coord
+                            
+
+                            #get radius at our current X position
+                            current_radius = reference_radius + (self.spline(x) - self.referenceZ)
+                            #self._logger.info(f"Current radius: {current_radius}")
+                            #just use z_mod values at max_radius for inverts
+                            if self.invert_facet:
+                                current_radius = max_radius
+                            #get adjusted values for Z
+                            z_mod = self.sagitta_distance(math.radians(a_measure),current_radius)
+                            z_mod = z_mod * self.depth_mod  # Apply depth modifier
+
+                            if self.invert_facet:
+                                z_mod = max_z - z_mod
+        
+                            if z_mod > max_zmod:
+                                max_zmod = z_mod
+                                #self._logger.info(f"New max Z mod: {max_zmod:.2f}")
+
+                            if z_mod > nominal_depth:
+                                z_mod = nominal_depth
+                                if depth == 1 and ease_down:
+                                    fract = nominal_depth/60
+                                    z_mod = fract*(i+1)
+                                    facet_list.append(f"(Ease down step with z_mod: {z_mod:.2f})")
+                                    if z_mod > nominal_depth:
+                                        facet_list.append(f"(Ease down done)")
+                                        z_mod = nominal_depth
+                                        ease_down = False
+
+                            #setting here so if zmod is less than some value, crank up the feed rate
+                            if self.adaptive:
+                                # Scale feed between maxscale (shallow cut) and 1.0 (full step_down)
+                                if thiscut < self.step_down:
+                                    scale = (
+                                        self.feedscale+
+                                        (1.0 - self.feedscale) * (thiscut / self.step_down)
+                                    )
+                                    self._logger.debug(f"feed adjust from {feed} to {feed*scale}")
+                                    feed = feed * scale
+                            a_move = current_a
+                            if seg_rot:
+                                a_move = current_a + (seg_rot * i * a_direction)
+                            #is this correct?
+                            if self.do_oval:
+                                self._logger.debug(f"Pre-oval depth at {current_a}: {z_mod}")
+                                oval_mod = -self.ovality_mod(x, current_a)
+                                z_mod = z_mod + oval_mod
+                                self._logger.debug(f"Post-oval depth at {current_a}: {z_mod}")
+                            facet_list.append(f"(Facet depth pass {depth} with depth: {z_mod})")
+                            trans_x, trans_z = self.cut_depth_value(coord, -z_mod)  # Adjust depth
+                            #handle A rotation parameter
+
+                            facet_list.append(f"G93 G1 X{trans_x:.3f} Z{trans_z:.3f} A{a_move:.3f} B{coord['B']:.3f} F{feed:.1f}")
+                            i += 1
+                        a_direction *= -1        
+                    else:
+                        #if we are done with this pass, retract from current position
+                        facet_list.append(f"(Section done, retracting to safe position)")
+                        facet_list.append(f"G0 X{retract_x:.3f} Z{retract_z:.3f} B{coord['B']:.3f}")
+                    #if we haven't hit ease down on the first segment, ignore
+                    ease_down = False
+                    if seg_rot:
+                        current_a = a_move
+                current_a += delta_degrees
+                a_measure += delta_degrees
+                facet_list.append(f"G0 X{retract_x:.3f} Z{retract_z:.3f} B{coord['B']:.3f}")
+                
             command_list.extend(facet_list)
-            command_list.append(f"G0 A{facet_angle:0.3f}")
-            command_list.append("G92 A0")
+            #rotate to next segment
+            next_start = facet_angle*(j+1)
+            current_a = next_start
+            a_measure = next_start
+            command_list.append(f"G0 A{next_start:0.3f}")
+            #command_list.append("G92 A0")
        
         command_list.append("M5")
         command_list.append("M30")
@@ -640,9 +727,13 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         with open(path_on_disk,"w") as newfile:
             for line in command_list:
                 newfile.write(f"\n{line}")
+        self.send_le_clear()
 
     def generate_flute_job(self):
         self._logger.info("Starting Flute job")
+        data = dict(title="Writing Gcode...", text="Flute job is writing.", delay=60000, type="info")
+        self.send_le_message(data)
+
         command_list = []
         profile_points = []
         command_list.append(f"(LatheEngraver Flute job)")
@@ -653,144 +744,197 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         command_list.append(f"(Lead-in: {self.leadin}, Lead-out: {self.leadout})")
         command_list.append(f"(Feed: {self.feed})")
         command_list.append(f"(B angle range: {self.min_B} to {self.max_B})")
+        command_list.append(f"(Fixed axis increment: {self.increment})")
+        command_list.append(f"(B-angle smoothing points: {self.smooth_points})")
 
-        #truncate profile beween vMin and vMax
-        for each in self.x_coords:
+        # Truncate profile between vMin and vMax
+        for each in self.ind_v:
             if each < self.vMin:
                 continue
             if each > self.vMax:
                 continue
             profile_points.append(each)
         
-        #reverse the profile for Z axis
+        # Calculate depth passes
+        pass_info = divmod(self.depth, self.step_down)
+        passes = pass_info[0]
+        last_pass_depth = pass_info[1]
+        if last_pass_depth:
+            total_passes = int(passes + 1)
+        else:
+            total_passes = int(passes)
+
+        # Calculate A rotation per flute and per move (for helical flutes)
+        flute_angle = 360 / self.segments
+        seg_rot = self.arotate / (len(profile_points) - 1) if len(profile_points) > 1 else 0
+
+        # Lead-in/lead-out calculations
+        lead_in_x = lead_out_x = total_in_step = total_out_step = in_inc = out_inc = None
+        if self.leadin or self.leadout:
+            #try:
+            if self.axis == "Z":
+                #swap for Z
+                lead_out_x = self.x_to_arc(profile_points, self.leadout, start=True)
+                lead_in_x = self.x_to_arc(profile_points, -self.leadin, start=False)
+            else:
+                lead_in_x = self.x_to_arc(profile_points, self.leadin, start=True)
+                lead_out_x = self.x_to_arc(profile_points, -self.leadout, start=False)
+            self._logger.debug(f"lead_in_val: {lead_in_x}, lead_out_val: {lead_out_x}")
+
+            if self.axis == "X":
+                if lead_out_x < lead_in_x:
+                    self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
+                                                        title="Lead-in/Lead-out error",
+                                                        text="Lead-in and lead-out overlap, please adjust values",
+                                                        hide=True,
+                                                        delay=10000,
+                                                        notify_type="error"))
+                    return
+
+                total_in_step = int((lead_in_x - profile_points[0])/self.increment)
+                total_out_step = int((profile_points[-1] - lead_out_x)/self.increment)
+                in_inc = self.step_down/(total_in_step) if total_in_step else 0
+                out_inc = self.step_down/(total_out_step) if total_out_step else 0
+                self._logger.info(f"steps lead-in: {total_in_step}, lead-out {total_out_step}")
+                self._logger.info(f"increment for lead-in: {in_inc}, lead-out {out_inc}")
+
+            if self.axis == "Z":
+                if lead_out_x > lead_in_x:
+                    self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
+                                                        title="Lead-in/Lead-out error",
+                                                        text="Lead-in and lead-out overlap, please adjust values",
+                                                        hide=True,
+                                                        delay=10000,
+                                                        notify_type="error"))
+                    return
+                self._logger.debug(f"Z, profile_points first/last: {profile_points[0]}, {profile_points[-1]}")
+                total_in_step = abs(int((lead_in_x - profile_points[-1])/self.increment))
+                total_out_step = abs(int((profile_points[0] - lead_out_x)/self.increment))
+                in_inc = self.step_down/(total_in_step) if total_in_step else 0
+                out_inc = self.step_down/(total_out_step) if total_out_step else 0
+                self._logger.info(f"steps lead-in: {total_in_step}, lead-out {total_out_step}")
+                self._logger.info(f"increment for lead-in: {in_inc}, lead-out {out_inc}")
+            
+        # Reverse the profile for Z axis
         if self.axis == "Z":
             profile_points.reverse()
-
+        
         if self.axis == "X":
             z_at_min = self.spline(self.vMin)
             z_at_max = self.spline(self.vMax)
             if z_at_max < z_at_min:
                 profile_points.reverse()
 
-        #A axis rotation per segment- this is very simplistic. Maybe calculate total distance and fraction of that total distace per move?
-        seg_rot = self.arotate/(len(profile_points)-1)
-        self._logger.info(f"Segment rotation: {seg_rot}")
-        A_rot = 360/self.segments
-        #for our safe position(s)
-        sign, safe = self.safe_retract()
-
-        #Preamble stuff here
+        # Preamble
         command_list.append("G21")
         command_list.append("G90")
-        #move to start
-        start = self.calc_coords(profile_points[0])
-        trans_x, trans_z = self.cut_depth_value(start, 5)
-        self._logger.info(f"Start coords: X{start['X']}, Z{start['Z']}. Modified X{trans_x}, Z{trans_z}")
-        safe_position = f"G0 X{trans_x:0.4f} Z{trans_z:0.4f} B{start['B']:0.4f}"
-        
-        command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
-        move_1 = f"G0 X{trans_x:0.4f}"
-        move_2 = f"G0 Z{trans_z:0.4f} B{start['B']:0.4f}"
-        if self.axis == "X":
-            command_list.append(move_1)
-            command_list.append(move_2)
-        else:
-            command_list.append(move_2)
-            command_list.append(move_1)
-        command_list.append(safe_position)
-        command_list.append(f"M3 S24000")
+        sign, safe = self.safe_retract()
 
-        #calculate how many depth passes we need
-        pass_info = divmod(self.depth, self.step_down)
-        passes = pass_info[0] #quotient
-        last_pass_depth = pass_info[1] #remainder
-        if last_pass_depth:
-            total_passes = passes + 1
-        else:
-            total_passes = passes
+        for flute in range(self.segments):
+            flute_dir = 1
+            previous_depth = 0
+            base_a = flute * flute_angle
+            command_list.append(f"(Starting flute {flute+1} of {self.segments})")
+            command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
+            # Move to start position for this flute
+            start = self.calc_coords(profile_points[0])
+            trans_x, trans_z = self.cut_depth_value(start, 5)
+            b_move  = (f"G0 B{start['B']:0.4f} A{base_a:.4f}")
+            move_1 = (f"G0 X{trans_x:0.4f}")
+            move_2 = (f"G0 Z{trans_z:0.4f}")
+            if self.axis == "X":
+                command_list.append(b_move)
+                command_list.append(move_1)
+                command_list.append(move_2)
+            else:
+                command_list.append(b_move)
+                command_list.append(move_2)
+                command_list.append(move_1)
 
-        #calculate lead-in/out increments
-        if self.leadin or self.leadout:
-            try:
-                #get profile x value from start/end that closest to the desired leadin/leadout:
-                lead_in_x = self.x_to_arc(profile_points, self.leadin, start=True)
-                lead_out_x = self.x_to_arc(profile_points, -self.leadout, start=False)
+            for current_pass in range(1, total_passes + 1):
+                #NOTE, using negative depths here
+                nominal_depth = current_pass * self.step_down * -1
+                if current_pass == total_passes and last_pass_depth:
+                    nominal_depth = self.depth * -1
 
-                if lead_out_x < lead_in_x:
-                    #lead in's and outs  overlap, abort,throw some error or something
-                    self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
-                                                                    title="Lead-in/Lead-out error",
-                                                                    text="Lead-in and lead-out overlap, please adjust values",
-                                                                    hide=True,
-                                                                    delay=10000,
-                                                                    notify_type="error"))
-                    return
-            except:
-                self._logger.debug("Yeah leadin/out failed")
-            total_in_step = int((lead_in_x - profile_points[0])/self.increment)
-            total_out_step = int((profile_points[-1] - lead_out_x)/self.increment)
-            #DOC, need to redo how this works.
-            in_inc = self.step_down/(total_in_step)
-            out_inc = self.step_down/(total_out_step)
-            self._logger.debug(f"steps lead-in: {total_in_step}, lead-out {total_out_step}")
-            self._logger.debug(f"increment for lead-in: {in_inc}, lead-out {out_inc}") 
-
-        current_pass = 1
-        while current_pass <= total_passes:
-            depth = 0
-            pass_list = []
-            previous_coord = None
-    
-            #calculate depth on this pass
-            nominal_depth = current_pass*self.step_down*-1
-            if current_pass == total_passes and last_pass_depth:
-                nominal_depth = self.depth*-1
-            
-            pass_list.append(f"(Cut depth: {nominal_depth})")
-            i = -1 #handles A rotations better
-            for each in profile_points:
-                i+=1
-                steps_from_end = len(profile_points) - 1 - i
-                #Modify Z amounts for lead-in/out, logic may have to change for Z-axis cuts
-                if self.leadin and i < total_in_step:
-                    depth = self.lead_calc("in", nominal_depth, total_in_step - i, in_inc)
-                if self.leadout and steps_from_end < total_out_step:
-                    depth = self.lead_calc("out", nominal_depth, total_out_step - steps_from_end, out_inc)
-                self._logger.debug(f"Depth: {depth}")
-                coord = self.calc_coords(each) #these just follow profile, have to add cut depth
-                #get adjusted values
-                if previous_coord:
-                    feed = self.calc_feedrate(previous_coord, coord)
+                if current_pass == 1:
+                    thiscut = nominal_depth
                 else:
-                    feed = self.feed
-                previous_coord = coord               
-                trans_x, trans_z = self.cut_depth_value(coord, depth)
-                pass_list.append(f"G93 G90 G1 X{trans_x:0.3f} Z{trans_z:0.3f} A{seg_rot*i:0.3f} B{coord['B']:0.3f} F{feed:0.1f}")
-                depth = nominal_depth
-            #Go to safe position from latest coord, this needs to retract ALONG current B
-            trans_x, trans_z = self.cut_depth_value(coord, 5)
+                    thiscut = nominal_depth - previous_depth
+                previous_depth = nominal_depth
 
-            pass_list.append("(Pass done, move to safe position)")
-            pass_list.append(f"G0 X{trans_x:0.3f} Z{trans_z:0.3f} B{coord['B']:0.3f}")
-            if not self.risky_clearance:
-                pass_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
-            start_x, start_z = self.cut_depth_value(start, 5)
-            pass_list.append(f"G90 G0 {self.axis}{start_x:0.3f}")
-            #make sure we move back to last A position before starting next pass
-            pass_list.append(f"G0 A{seg_rot*i:0.3f}")
-            #move to clear position
-            
-            j = 1
-            while j <= self.segments:
-                command_list.append(f"(Starting segment {j} of {self.segments})")
-                command_list.extend(pass_list)
-                command_list.append("G0 A0") #return A to 0 first
-                command_list.append(f"G0 A{A_rot:0.3f}")
-                command_list.append("G92 A0")
-                #move to start safe position for next pass:
-                command_list.append(safe_position)  
-                j += 1
-            current_pass += 1
+                command_list.append(f"(Cut depth: {nominal_depth})")
+                previous_coord = None
+
+                # Alternate direction for each pass
+                if flute_dir == 1:
+                    points_iter = list(enumerate(profile_points))
+                else:
+                    points_iter = [(i, v) for i, v in zip(range(len(profile_points)-1, -1, -1), reversed(profile_points))]
+
+                #TODO this is not working for lead-ins/outs!!!!
+                for idx, each in points_iter:
+                    # Calculate position from start and end for current direction
+                    if flute_dir == 1:
+                        position_from_start = idx
+                        position_from_end = len(profile_points) - 1 - idx
+                        leadin_check = position_from_start
+                        leadout_check = position_from_end
+                    else:
+                        position_from_start = len(profile_points) - 1 - idx
+                        position_from_end = idx
+                        # SWAP lead-in and lead-out checks for reverse pass
+                        leadin_check = position_from_end
+                        leadout_check = position_from_start
+
+                    depth = nominal_depth
+                    if self.leadin and total_in_step and leadin_check < total_in_step:
+                        depth = self.lead_calc("in", nominal_depth, total_in_step - leadin_check, in_inc)
+                        command_list.append(f"(lead in, index:{leadin_check} inc:{in_inc} depth:{depth})")
+                    if self.leadout and total_out_step and leadout_check < total_out_step:
+                        depth = self.lead_calc("out", nominal_depth, total_out_step - leadout_check, out_inc)
+                        command_list.append(f"(lead out, index:{leadout_check} inc:{out_inc} depth:{depth})")
+
+                    coord = self.calc_coords(each)
+                    if previous_coord:
+                        feed = self.calc_feedrate(previous_coord, coord)
+                    else:
+                        feed = self.feed
+                    previous_coord = coord
+
+                    if seg_rot:
+                        current_a = base_a + seg_rot * idx
+                    else:
+                        current_a = base_a
+
+                    if self.do_oval:
+                        self._logger.debug(f"Pre-oval depth at {current_a}: {depth}")
+                        depth_mod = self.ovality_mod(each, current_a)
+                        depth = depth + depth_mod
+                        self._logger.debug(f"Post-oval depth at {current_a}: {depth}")
+
+                    if self.adaptive:
+                        # Scale feed between maxscale (shallow cut) and 1.0 (full step_down)
+                        if abs(thiscut) < self.step_down:
+                            scale = (
+                                self.feedscale+
+                                (1.0 - self.feedscale) * (abs(thiscut) / self.step_down)
+                            )
+                            self._logger.debug(f"feed adjust from {feed} to {feed*scale}")
+                            feed = feed * scale
+
+                    trans_x, trans_z = self.cut_depth_value(coord, depth)
+                    command_list.append(
+                        f"G93 G90 G1 X{trans_x:.3f} Z{trans_z:.3f} A{current_a:.3f} B{coord['B']:.3f} F{feed:.1f}"
+                    )
+                # Retract at end of pass
+                trans_x, trans_z = self.cut_depth_value(coord, 5)
+                command_list.append(f"G0 X{trans_x:.3f} Z{trans_z:.3f} B{coord['B']:.3f}")
+                flute_dir *= -1  # Reverse direction for next pass
+            # After all passes for this flute, rotate to next flute
+            command_list.append(f"G0 A{(base_a + flute_angle):.3f}")
+            #command_list.append("G92 A0")
+
         command_list.append("M5")
         command_list.append("M30")
         output_name = self.name.removesuffix(".txt")
@@ -801,12 +945,18 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             for line in command_list:
                 newfile.write(f"\n{line}")
 
+        self.send_le_clear()
+
     def generate_wrap_job(self):
+        #TODO: It makes  more sense to go back and write a parser explicity for this.
+        # GcodeRipper works, but is quite clunky
+
         #create profile from diameter reference
         profile_points = []
-        
+        data = dict(title="Writing Gcode...", text="Wrap job is writing.", delay=60000, type="info")
+        self.send_le_message(data)
         #truncate profile beween vMin and vMax
-        for each in self.x_coords:
+        for each in self.ind_v:
             if each < self.vMin:
                 continue
             if each > self.vMax:
@@ -840,7 +990,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                                                     [xtoscale,sf,1,1],
                                                                     0,
                                                                     split_moves=True,
-                                                                    min_seg_length=self.steps)
+                                                                    min_seg_length=self.increment)
         #self._logger.info(temp)
         midx = (minx+maxx)/2
         midy = (miny+maxy)/2
@@ -861,7 +1011,9 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                         self.radius_adjust,
                                         self.referenceZ,
                                         self.singleB,
-                                        self.smoothing)
+                                        self.smooth_points,
+                                        self.do_oval,
+                                        plugin=self)
                                         
         self._logger.info(temp)
         #get first X and Z moves that are not complex
@@ -872,7 +1024,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 if not isinstance(line[1][3], complex):
                     first_z = line[1][2]
                 if not isinstance(line[1][1], complex):
-                    first_x = line[1][0]
+                    first_x = line[1][1]
                     break
 
 
@@ -891,18 +1043,43 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             newfile.write(f"G0 {safe}{sign}{10+self.clearance:0.4f}\n")
             newfile.write(f"G0 X{first_x:0.2f}\n")
             #single case
-            while repeats:
-                for line in self.gcr.generategcode(temp,Rstock=self.diam/2,no_variables=True,Wrap="SPECIAL",FSCALE="None"):
-                    if repeats > 1 and line.startswith("M30"):
+            a_offset = 0
+            for j in range(0, self.segments):
+                a_offset=arots*(j)
+                for line in self.gcr.generategcode(temp,
+                                                   Rstock=self.diam/2,
+                                                   no_variables=True,
+                                                   Wrap="SPECIAL",
+                                                   FSCALE="None",
+                                                   do_oval=self.do_oval,
+                                                   a_offset=a_offset):
+                    if j < self.segments and line.startswith("M30"):
                         continue
                     else:
                         newfile.write(f"\n{line}")
-                repeats -= 1
-                if repeats:
-                    newfile.write("\nG0 A0")
-                    newfile.write(f"\nG0 A{arots:0.4f}")
-                    newfile.write("\nG92 A0")
-            
+                newfile.write("\nG0 A0")
+                next_a = a_offset+arots
+                newfile.write(f"\nG0 A{next_a:0.4f}")
+
+        self.send_le_clear()
+
+    def send_le_message(self, data):
+        
+        payload = dict(
+            type="simple_notify",
+            title=data["title"],
+            text=data["text"],
+            hide=True,
+            delay=data["delay"],
+            notify_type=data["type"]
+        )
+
+        self._plugin_manager.send_plugin_message("latheengraver", payload)
+
+    def send_le_clear(self):
+        self._plugin_manager.send_plugin_message("latheengraver", dict(type='clear_all'))
+        self._logger.debug("Cleared notification")
+
     def is_api_protected(self):
         return True
     
@@ -932,8 +1109,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             self.name = data["name"]
             self.arotate = float(data["arotate"])
             self.segments = int(data["segments"])
-            self.steps = float(data["steps"])
-            self.smoothing = int(data["smoothing"])
+            self.increment = float(data["steps"])
+            self.smooth_points = int(data["smoothing"])
             if self.segments == 0:
                 self.segments = 1
             self.vMax = float(data["vMax"])
@@ -951,6 +1128,9 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self.plot_data = sorted(self.plot_data, key=lambda x: x["z"])
                 #self._logger.info(self.plot_data)
             self.create_spline()
+
+            if self.do_oval:
+                self.create_a_spline()
 
             if self.mode == "laser":
                 self.test = bool(data["test"])
@@ -991,7 +1171,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self.depth = float(data["depth"])
                 self.adaptive = bool(data["adaptive"])
                 self.feedscale = float(data["feedscale"])
-               
+
                 if self.segments < 3:
                     self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
                                                                     title="Facet Error",

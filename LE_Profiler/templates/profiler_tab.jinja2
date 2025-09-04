@@ -190,13 +190,14 @@
                 <details>
                     <summary>Super Advanced Features</summary>
                     <div>
-                        <label for="steps">Step size (mm):</label>
-                            <input id="increments" type="number" value="1" step="any" data-bind="value: steps">
-                        
+
+                        <label for="steps">Step size (mm):
+                            <input id="increments" type="number" value="1" step="any" data-bind="value: increment">
+                        </label>
                     </div>
 
-                    <div class="wrap">
-                        <label for="smoothing">B-angle smoothing (points):</label>
+                    <div class="wrap flute facet laser">
+                        <label for="smoothing">B-angle smoothing (points):
                             <input id="smoothing" type="number" min="1" value="6" step="" data-bind="value: smoothing">
                         
                     </div>
@@ -206,13 +207,11 @@
                             <input id="singleB" type="checkbox" data-bind="checked: singleB">
                         
                     </div>
-
-                    <div class="flute facet">
+                      <div class="flute facet">
                         <label title="Scales up feedrate during shallow passes. Up to max scale value." for="adaptive">Use adaptive feed rates:</label>
                             <input id="adaptive" type="checkbox" data-bind="checked: adaptive">
                         
                     </div>
-
                     <div class="flute facet">
                         <label for="fmod1">Adaptive feedrate max scale:</label>
                             <input id="fmod1" type="number" min="1" max="10" step="any" data-bind="value: feedscale">

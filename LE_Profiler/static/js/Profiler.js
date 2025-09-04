@@ -10,11 +10,10 @@ $(function() {
         self.smoothedZValues = [];  // Store smoothed Z values
         self.annotations = [];
         self.markerAction = ko.observable("zeroPoint");
-        self.tool_length = ko.observable(135);
+        self.tool_length = ko.observable(0.0);
         self.min_B = ko.observable(-180);
         self.max_B = ko.observable(180);
         self.start_max = ko.observable(0);
-        self.steps = ko.observable(0.25);
         self.smoothing = ko.observable(6);
         self.side = ko.observable("front");
         self.Arot = ko.observable(0);
@@ -23,7 +22,7 @@ $(function() {
         self.leadin = ko.observable(0);
         self.leadout = ko.observable(0);
         self.smooth_points = ko.observable(4);
-        self.increment = ko.observable(0.5);
+        self.increment = ko.observable(0.25);
         self.adaptive = ko.observable(0);
         self.feedscale = ko.observable(1.0);
         self.reversed = false;
@@ -31,7 +30,6 @@ $(function() {
         self.isXFile = false;
         self.name = null;
         self.pd = null;
-
         self.wrapfiles = null;
         self.scans = null;
 
@@ -136,7 +134,8 @@ $(function() {
             $(".zscan").hide();
 
             self.smooth_points = self.settings.smooth_points;
-            self.tool_length = self.settings.tool_length;
+            //burned by this several times now....just force the user to put in the value
+            //self.tool_length = self.settings.tool_length;
             self.increment = self.settings.increment;
 
         };
@@ -319,6 +318,7 @@ $(function() {
                                 plotProfile(false);
                             }
                             else if (self.markerAction() === "refset") {
+                                var offset = getSmartAnnotationOffset(clickedX, clickedZ, self.xValues, self.zValues);
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('D'));
                                 self.referenceZ = clickedZ;
                                 self.annotations.push({
@@ -329,8 +329,8 @@ $(function() {
                                     text: 'D='+self.refdiam(),
                                     showarrow: true,
                                     arrowhead: 2,
-                                    ax: 0,
-                                    ay: 40
+                                    ax: offset.ax,
+                                    ay: offset.ay
                                 });
                                 plotProfile(false);
                             }
@@ -496,9 +496,14 @@ $(function() {
                  return;
             }
 
-            if (self.step_down > self.depth
-                || self.step_down <= 0) {
+            if (self.step_down() > self.depth()
+                || self.step_down() <= 0) {
                 alert("Step down must be less than or equal to total depth and greater than 0.");
+                return;
+            }
+
+            if (self.tool_length() < 10) {
+                alert("You must provide rotation center to surface distance");
                 return;
             }
 
@@ -538,7 +543,7 @@ $(function() {
                 width: self.width,
                 radius_adjust: self.radius_adjust(),
                 singleB: self.singleB(),
-                steps: self.steps(),
+                steps: self.increment(),
                 smoothing: self.smoothing(),
                 step_over: self.step_over(),
                 tool_diam: self.tool_diam(),
@@ -561,6 +566,11 @@ $(function() {
             //Data sanity checking
             if (self.isZFile && self.side == "none") {
                 alert("Tool direction must be set for Z scans");
+                return;
+            }
+
+            if (self.tool_length() < 10.0) {
+                alert("You must provide rotation center to surface distance");
                 return;
             }
     
@@ -613,3 +623,33 @@ $(function() {
         onTabChange: true
     });
 });
+
+function getSmartAnnotationOffset(x, y, xArray, yArray) {
+    // Find plot center
+    var xMin = Math.min(...xArray);
+    var xMax = Math.max(...xArray);
+    var yMin = Math.min(...yArray);
+    var yMax = Math.max(...yArray);
+    var xMid = (xMin + xMax) / 2;
+    var yMid = (yMin + yMax) / 2;
+
+    // Default offset
+    var ax = 30;
+    var ay = -30;
+
+    // Horizontal: left or right of center
+    if (x < xMid) {
+        ax = 30; // right
+    } else {
+        ax = -30; // left
+    }
+
+    // Vertical: above or below center
+    if (y < yMid) {
+        ay = 30; // below
+    } else {
+        ay = -30; // above
+    }
+
+    return { ax: ax, ay: ay };
+}
