@@ -497,10 +497,12 @@ $(function() {
                  return;
             }
 
-            if (self.step_down() > self.depth()
-                || self.step_down() <= 0) {
-                alert("Step down must be less than or equal to total depth and greater than 0.");
-                return;
+            if (self.mode() == "flute" || self.mode() == "facet") {
+                if (self.step_down() > self.depth()
+                    || self.step_down() <= 0) {
+                    alert("Step down must be less than or equal to total depth and greater than 0.");
+                    return;
+                }
             }
 
             if (self.tool_length() < 10) {

@@ -1029,6 +1029,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
 
         path_on_disk = "{}/{}".format(self._settings.getBaseFolder("watched"), output_name)
+        arots = 0
         if self.segments > 1:
             arots = 360/self.segments
         repeats = self.segments
