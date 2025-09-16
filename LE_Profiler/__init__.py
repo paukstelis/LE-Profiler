@@ -1211,6 +1211,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             self.max_B = float(data["max_B"])
             self.min_B = float(data["min_B"])
             self.side = data["side"]
+            getB = bool(data["getB"])
             #must sort data first
             for each in self.plot_data:
                 for k, v in each.items():
@@ -1227,19 +1228,25 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             #Move to safe position
             gcode = ["G90","G21",f"G0 {safe}{sign}{10+self.clearance:0.4f}"]
             coord = self.calc_coords(self.target)
-            b_move  = (f"G90 B{coord['B']:0.4f}")
-            move_1 = (f"G93 G90 G0 X{coord['X']:0.4f}")
-            move_2 = (f"G93 G90 G0 Z{coord['Z']:0.4f}")
-            if self.axis == "X":
-                gcode.append(b_move)
-                gcode.append(move_1)
-                gcode.append(move_2)
+            if getB:
+                self._logger.info(f"Calculated B: {coord['B']}")
+                msg = dict(type="info", text="Calculated B at target: {0:0.2f}".format(coord['B']), type="info")
+                self.send_le_message(msg)
+                return
             else:
-                gcode.append(b_move)
-                gcode.append(move_2)
-                gcode.append(move_1)
-            self._logger.info(gcode)
-            self._printer.commands(gcode)
+                b_move  = (f"G90 B{coord['B']:0.4f}")
+                move_1 = (f"G93 G90 G0 X{coord['X']:0.4f}")
+                move_2 = (f"G93 G90 G0 Z{coord['Z']:0.4f}")
+                if self.axis == "X":
+                    gcode.append(b_move)
+                    gcode.append(move_1)
+                    gcode.append(move_2)
+                else:
+                    gcode.append(b_move)
+                    gcode.append(move_2)
+                    gcode.append(move_1)
+                self._logger.info(gcode)
+                self._printer.commands(gcode)
 
 
     def get_update_information(self):

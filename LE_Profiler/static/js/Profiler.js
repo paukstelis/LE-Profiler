@@ -566,7 +566,7 @@ $(function() {
                 });
         };
 
-        self.gotoposition = function() {
+        self.gotoposition = function(getB) {
             //Data sanity checking
             if (self.isZFile && self.side == "none") {
                 alert("Tool direction must be set for Z scans");
@@ -601,6 +601,7 @@ $(function() {
                 clear: clearance,
                 side: self.side(),
                 mode: "target",
+                getB: getB,
             };
             console.log(data);
             OctoPrint.simpleApiCommand("profiler", "go_to_position", data)
