@@ -134,7 +134,7 @@ $(function() {
             $(".wrap").hide();
             $(".zscan").hide();
 
-            self.smooth_points = self.settings.smooth_points;
+            self.smoothing = self.settings.smooth_points;
             //burned by this several times now....just force the user to put in the value
             //self.tool_length = self.settings.tool_length;
             self.increment = self.settings.increment;

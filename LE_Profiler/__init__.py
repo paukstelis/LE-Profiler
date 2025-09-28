@@ -591,6 +591,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
         for j in range(0, self.segments):
             facet_list = []
+            a_direction = 1
             command_list.append(f"(Starting facet {j+1} of {self.segments})")
             command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
             command_list.append(f"G0 B{start['B']:0.4f}")
@@ -685,11 +686,11 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                 a_move = current_a + (seg_rot * i * a_direction)
                             #is this correct?
                             if self.do_oval:
-                                self._logger.debug(f"Pre-oval depth at {current_a}: {z_mod}")
+                                #self._logger.debug(f"Pre-oval depth at {current_a}: {z_mod}")
                                 oval_mod = -self.ovality_mod(x, current_a)
                                 z_mod = z_mod + oval_mod
-                                self._logger.debug(f"Post-oval depth at {current_a}: {z_mod}")
-                            facet_list.append(f"(Facet depth pass {depth} with depth: {z_mod})")
+                                #self._logger.debug(f"Post-oval depth at {current_a}: {z_mod}")
+                            #facet_list.append(f"(Facet depth pass {depth} with depth: {z_mod})")
                             trans_x, trans_z = self.cut_depth_value(coord, -z_mod)  # Adjust depth
                             #handle A rotation parameter
 
