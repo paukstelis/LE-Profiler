@@ -1211,6 +1211,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             self.max_B = float(data["max_B"])
             self.min_B = float(data["min_B"])
             self.side = data["side"]
+            self.smooth_points = int(data["smoothing"])
             getB = bool(data["getB"])
             #must sort data first
             for each in self.plot_data:
@@ -1230,7 +1231,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             coord = self.calc_coords(self.target)
             if getB:
                 self._logger.info(f"Calculated B: {coord['B']}")
-                msg = dict(type="info", text="Calculated B at target: {0:0.2f}".format(coord['B']), type="info")
+                msg = dict(title="Coordinates at target", text="Calculated B: {0:0.2f}<br>Calculated X: {1:0.2f}<br>Calculated Z: {2:0.2f}".format(coord['B'], coord['X'], coord['Z']), type="info", delay=10000)
                 self.send_le_message(msg)
                 return
             else:

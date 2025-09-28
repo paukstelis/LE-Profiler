@@ -497,7 +497,7 @@ $(function() {
                  return;
             }
 
-            if (self.mode() == "flute" || self.mode() == "facet") {
+            if (self.mode() == "flute") {
                 if (self.step_down() > self.depth()
                     || self.step_down() <= 0) {
                     alert("Step down must be less than or equal to total depth and greater than 0.");
@@ -601,6 +601,7 @@ $(function() {
                 clear: clearance,
                 side: self.side(),
                 mode: "target",
+                smoothing: self.smoothing(),
                 getB: getB,
             };
             console.log(data);
