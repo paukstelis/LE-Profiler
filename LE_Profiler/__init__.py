@@ -592,6 +592,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         for j in range(0, self.segments):
             facet_list = []
             a_direction = 1
+            facet_start_a = facet_angle * j
             command_list.append(f"(Starting facet {j+1} of {self.segments})")
             command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
             command_list.append(f"G0 B{start['B']:0.4f}")
@@ -606,6 +607,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 #if a_measure > end_a:
                 #    continue
                 facet_list.append(f"(Facet A angle step {a_step+1} of {num_a_steps})")
+                self._logger.debug(f"Facet angle step {a_step+1} of {num_a_steps}")
                 facet_list.append(f"(Current A angle: {current_a:.3f})")
                 facet_list.append(f"(A measure: {a_measure:.3f})")
                 facet_list.append(f"G0 A{current_a:.3f}")
@@ -615,6 +617,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     nominal_depth = depth * self.step_down
                                 
                     if depth > 1:
+                        #self._logger.debug(f"Depth={depth}, max_zmod={max_zmod}, nominal={nominal_depth}, previous={previous_depth}")
                         if nominal_depth >= max_zmod and previous_depth >= max_zmod:
                             #self._logger.info(f"Max Z mod reached: {max_zmod:.2f}, stopping section")
                             section_done = True
@@ -624,15 +627,17 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                      #this cut depth
                     if depth == 1:
                         thiscut = nominal_depth
+                        #self._logger.debug("First pass...")
+                        section_done = False
                     else:
                         thiscut = nominal_depth - previous_depth
                     #self._logger.debug(f"Cut depth on this pass: {thiscut}")
                     previous_depth = nominal_depth
                     i = 0
                     if not section_done:
-                        
+                        #self._logger.debug("Section not done, doing  pass")
+                        max_zmod = 0
                         x_iter = profile_points if a_direction == 1 else reversed(profile_points)
-                        
                         for x in x_iter:
                             coord = self.calc_coords(x)
                             retract_x, retract_z = self.cut_depth_value(coord, 5)
@@ -641,17 +646,16 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                             else:
                                 feed = self.feed
                             previous_coord = coord
-                            
-
                             #get radius at our current X position
                             current_radius = reference_radius + (self.spline(x) - self.referenceZ)
-                            #self._logger.info(f"Current radius: {current_radius}")
                             #just use z_mod values at max_radius for inverts
                             if self.invert_facet:
                                 current_radius = max_radius
                             #get adjusted values for Z
-                            z_mod = self.sagitta_distance(math.radians(a_measure),current_radius)
+                            relative_a = current_a - facet_start_a
+                            z_mod = self.sagitta_distance(math.radians(relative_a),current_radius)
                             z_mod = z_mod * self.depth_mod  # Apply depth modifier
+                            #self._logger.debug(f"adjusted z_mod = {z_mod}")
 
                             if self.invert_facet:
                                 z_mod = max_z - z_mod
@@ -679,7 +683,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                         self.feedscale+
                                         (1.0 - self.feedscale) * (thiscut / self.step_down)
                                     )
-                                    self._logger.debug(f"feed adjust from {feed} to {feed*scale}")
+                                    #self._logger.debug(f"feed adjust from {feed} to {feed*scale}")
                                     feed = feed * scale
                             a_move = current_a
                             if seg_rot:
