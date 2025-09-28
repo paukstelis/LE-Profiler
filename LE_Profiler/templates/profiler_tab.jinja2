@@ -7,10 +7,10 @@
             <label for="modeSelect">Mode:</label>
             <select id="modeSelect" data-bind="value: mode">
                 <option value="none"></option>
-                <option value="laser">Laser</option>
-                <option value="flute">Flute</option>
-                <option value="wrap">Wrap</option>
-                <option value="facet">Facet</option>
+                <option title="Create horizontal basket illusion-style lines" value="laser">Laser</option>
+                <option title="Cut a variety of flute styles" value="flute">Flute</option>
+                <option title="Wrap an existing 3-axis Gcode onto the surface" value="wrap">Wrap</option>
+                <option title="Create facets or scallops on an object" value="facet">Facet</option>
             </select>
         </div>
         
@@ -198,7 +198,7 @@
 
                     <div class="wrap flute facet laser">
                         <label for="smoothing">B-angle smoothing (points):</label>
-                        <input id="smoothing" type="number" min="2" value="12" step="2" data-bind="value: smooth_points">
+                        <input id="smoothing" type="number" min="2" value="12" step="2" data-bind="value: smoothing">
                         
                     </div>
                     
@@ -229,6 +229,7 @@
 <br>
     <div id="profiler_actions" style="clear: both; margin-top: 20px;">
         <button id="write_gcode_button" class="btn btn-primary" data-bind="click: writeGCode">Write Job</button>
-        <button id="target_button" class="btn btn-primary" data-bind="click: gotoposition">Go to Target</button>
+        <button id="target_button" class="btn btn-primary" data-bind="click: function() {gotoposition(0)}">Go to Target</button>
+        <button id="b_button" class="btn btn-primary" data-bind="click: function() {gotoposition(1)}">B at Target</button>
     </div>
 </div>

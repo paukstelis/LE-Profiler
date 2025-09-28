@@ -134,7 +134,7 @@ $(function() {
             $(".wrap").hide();
             $(".zscan").hide();
 
-            self.smooth_points = self.settings.smooth_points;
+            self.smoothing = self.settings.smooth_points;
             //burned by this several times now....just force the user to put in the value
             //self.tool_length = self.settings.tool_length;
             self.increment = self.settings.increment;
@@ -497,7 +497,8 @@ $(function() {
                  return;
             }
 
-            if (self.mode() == "flute" || self.mode() == "facet") {
+            if (self.mode() == "flute") {
+
                 if (self.step_down() > self.depth()
                     || self.step_down() <= 0) {
                     alert("Step down must be less than or equal to total depth and greater than 0.");
@@ -566,7 +567,7 @@ $(function() {
                 });
         };
 
-        self.gotoposition = function() {
+        self.gotoposition = function(getB) {
             //Data sanity checking
             if (self.isZFile && self.side == "none") {
                 alert("Tool direction must be set for Z scans");
@@ -601,6 +602,8 @@ $(function() {
                 clear: clearance,
                 side: self.side(),
                 mode: "target",
+                smoothing: self.smoothing(),
+                getB: getB,
             };
             console.log(data);
             OctoPrint.simpleApiCommand("profiler", "go_to_position", data)

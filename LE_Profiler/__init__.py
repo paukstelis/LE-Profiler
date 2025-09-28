@@ -591,6 +591,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
         for j in range(0, self.segments):
             facet_list = []
+            a_direction = 1
             command_list.append(f"(Starting facet {j+1} of {self.segments})")
             command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
             command_list.append(f"G0 B{start['B']:0.4f}")
@@ -685,11 +686,11 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                 a_move = current_a + (seg_rot * i * a_direction)
                             #is this correct?
                             if self.do_oval:
-                                self._logger.debug(f"Pre-oval depth at {current_a}: {z_mod}")
+                                #self._logger.debug(f"Pre-oval depth at {current_a}: {z_mod}")
                                 oval_mod = -self.ovality_mod(x, current_a)
                                 z_mod = z_mod + oval_mod
-                                self._logger.debug(f"Post-oval depth at {current_a}: {z_mod}")
-                            facet_list.append(f"(Facet depth pass {depth} with depth: {z_mod})")
+                                #self._logger.debug(f"Post-oval depth at {current_a}: {z_mod}")
+                            #facet_list.append(f"(Facet depth pass {depth} with depth: {z_mod})")
                             trans_x, trans_z = self.cut_depth_value(coord, -z_mod)  # Adjust depth
                             #handle A rotation parameter
 
@@ -1211,6 +1212,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             self.max_B = float(data["max_B"])
             self.min_B = float(data["min_B"])
             self.side = data["side"]
+            self.smooth_points = int(data["smoothing"])
+            getB = bool(data["getB"])
             #must sort data first
             for each in self.plot_data:
                 for k, v in each.items():
@@ -1227,19 +1230,25 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             #Move to safe position
             gcode = ["G90","G21",f"G0 {safe}{sign}{10+self.clearance:0.4f}"]
             coord = self.calc_coords(self.target)
-            b_move  = (f"G90 B{coord['B']:0.4f}")
-            move_1 = (f"G93 G90 G0 X{coord['X']:0.4f}")
-            move_2 = (f"G93 G90 G0 Z{coord['Z']:0.4f}")
-            if self.axis == "X":
-                gcode.append(b_move)
-                gcode.append(move_1)
-                gcode.append(move_2)
+            if getB:
+                self._logger.info(f"Calculated B: {coord['B']}")
+                msg = dict(title="Coordinates at target", text="Calculated B: {0:0.2f}<br>Calculated X: {1:0.2f}<br>Calculated Z: {2:0.2f}".format(coord['B'], coord['X'], coord['Z']), type="info", delay=10000)
+                self.send_le_message(msg)
+                return
             else:
-                gcode.append(b_move)
-                gcode.append(move_2)
-                gcode.append(move_1)
-            self._logger.info(gcode)
-            self._printer.commands(gcode)
+                b_move  = (f"G90 B{coord['B']:0.4f}")
+                move_1 = (f"G93 G90 G0 X{coord['X']:0.4f}")
+                move_2 = (f"G93 G90 G0 Z{coord['Z']:0.4f}")
+                if self.axis == "X":
+                    gcode.append(b_move)
+                    gcode.append(move_1)
+                    gcode.append(move_2)
+                else:
+                    gcode.append(b_move)
+                    gcode.append(move_2)
+                    gcode.append(move_1)
+                self._logger.info(gcode)
+                self._printer.commands(gcode)
 
 
     def get_update_information(self):
