@@ -498,6 +498,7 @@ $(function() {
             }
 
             if (self.mode() == "flute") {
+
                 if (self.step_down() > self.depth()
                     || self.step_down() <= 0) {
                     alert("Step down must be less than or equal to total depth and greater than 0.");
