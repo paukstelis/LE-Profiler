@@ -61,6 +61,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.adaptive = False
         self.feedscale = 1.0
         self.writing = False
+        self.conventional = False
 
         #self.watched_path = self._settings.global_get_basefolder("watched")
 
@@ -113,6 +114,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     self.axis = 'Z'
                 if stripped_line == "NEXTSEGMENT":
                     segments.append(current_segment)
+                    self.do_oval = True
                     current_segment = []
                     continue
                 if not stripped_line.startswith(";"):
@@ -935,7 +937,19 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 # Retract at end of pass
                 trans_x, trans_z = self.cut_depth_value(coord, 5)
                 command_list.append(f"G0 X{trans_x:.3f} Z{trans_z:.3f} B{coord['B']:.3f}")
-                flute_dir *= -1  # Reverse direction for next pass
+                if not self.conventional:
+                    flute_dir *= -1  # Reverse direction for next pass
+                else:
+                    #move back to start
+                    if self.axis == "X":
+                        command_list.append(b_move)
+                        command_list.append(move_1)
+                        command_list.append(move_2)
+                    else:
+                        command_list.append(b_move)
+                        command_list.append(move_2)
+                        command_list.append(move_1)
+
             # After all passes for this flute, rotate to next flute
             command_list.append(f"G0 A{(base_a + flute_angle):.3f}")
             #command_list.append("G92 A0")
@@ -1123,6 +1137,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             self.vMin = float(data["vMin"])
             self.feed = int(data["feed"])
             self.risky_clearance = bool(data["risky"])
+            self.conventional = bool(data["conventional"])
             #must sort data first
             for each in self.plot_data:
                 for k, v in each.items():
