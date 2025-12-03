@@ -1,0 +1,44 @@
+[build-system]
+requires = [
+    "setuptools>=68",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "LE-Profiler"
+version = "0.1.15"
+description = "Follow a profile"
+authors = [
+    { name = "Transpiration Turning", email = "transpirationturning@gmail.com" },
+]
+requires-python = ">=3.7,<4"
+dependencies = [
+    "scipy",
+]
+dynamic = [
+    "license",
+]
+
+[project.entry-points."octoprint.plugin"]
+profiler = "LE_Profiler"
+
+[project.urls]
+Homepage = "https://github.com/paukstelis/OctoPrint-LE-Profiler"
+
+[project.optional-dependencies]
+develop = [
+    "go-task-bin",
+]
+
+[project.readme]
+file = "README.md"
+content-type = "text/markdown"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = [
+    "LE_Profiler",
+    "LE_Profiler.*",
+]

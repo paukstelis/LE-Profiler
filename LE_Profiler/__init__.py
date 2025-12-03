@@ -1,14 +1,6 @@
 # coding=utf-8
 from __future__ import absolute_import
 
-### (Don't forget to remove me)
-# This is a basic skeleton for your plugin's __init__.py. You probably want to adjust the class name of your plugin
-# as well as the plugin mixins it's subclassing from. This is really just a basic skeleton to get you started,
-# defining your plugin as a template plugin, settings and asset plugin. Feel free to add or remove mixins
-# as necessary.
-#
-# Take a look at the documentation on what other plugin mixins are available.
-
 import octoprint.plugin
 import octoprint.filemanager
 import octoprint.filemanager.util
@@ -97,6 +89,13 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             "js": ["js/Profiler.js", "js/plotly-latest.min.js"],
             "css": ["css/Profiler.css"],
         }
+    
+    def _parse_g0(self, line: str):
+        if not line.lstrip().upper().startswith(("G0", "G00")):
+            return None, None, None
+        pairs = re.findall(r'([ABXYZ])\s*([-+]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][-+]?\d+)?)', line, flags=re.IGNORECASE)
+        vals = {k.upper(): float(v) for k, v in pairs}
+        return vals.get("X"), vals.get("Z"), vals.get("B")
     
     def creategraph(self, filepath):
         folder = self._settings.getBaseFolder("uploads")
@@ -823,8 +822,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self._logger.info(f"increment for lead-in: {in_inc}, lead-out {out_inc}")
             
         # Reverse the profile for Z axis
-        if self.axis == "Z":
-            profile_points.reverse()
+        #if self.axis == "Z":
+        #    profile_points.reverse()
         
         if self.axis == "X":
             z_at_min = self.spline(self.vMin)
@@ -838,6 +837,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         sign, safe = self.safe_retract()
 
         for flute in range(self.segments):
+            lastcut = False
             flute_dir = 1
             previous_depth = 0
             base_a = flute * flute_angle
@@ -869,6 +869,10 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 else:
                     thiscut = nominal_depth - previous_depth
                 previous_depth = nominal_depth
+
+                if nominal_depth == self.depth * -1:
+                    lastcut = True
+                    command_list.append("(Last cut)")
 
                 command_list.append(f"(Cut depth: {nominal_depth})")
                 previous_coord = None
@@ -940,15 +944,17 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 if not self.conventional:
                     flute_dir *= -1  # Reverse direction for next pass
                 else:
-                    #move back to start
-                    if self.axis == "X":
-                        command_list.append(b_move)
-                        command_list.append(move_1)
-                        command_list.append(move_2)
-                    else:
-                        command_list.append(b_move)
-                        command_list.append(move_2)
-                        command_list.append(move_1)
+                    if not lastcut:
+                        #move back to start
+                        command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
+                        if self.axis == "X":
+                            command_list.append(b_move)
+                            command_list.append(move_1)
+                            command_list.append(move_2)
+                        else:
+                            command_list.append(b_move)
+                            command_list.append(move_2)
+                            command_list.append(move_1)
 
             # After all passes for this flute, rotate to next flute
             command_list.append(f"G0 A{(base_a + flute_angle):.3f}")
@@ -1053,33 +1059,39 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             arots = 360/self.segments
         repeats = self.segments
         sign, safe = self.safe_retract()
-        with open(path_on_disk,"w") as newfile:
-            newfile.write(f"(LatheEngraver G-code Wrapping)\n")
-            newfile.write(f"(Ref. Diam: {self.diam}, Projection: {self.radius_adjust}, G-code width: {self.width})\n")
-            newfile.write(f"(Profile distance: {profile_dist:0.2f}, X-scale factor: {xtoscale}, A-scale factor: {sf})\n")
-            newfile.write("(Safe moves added)\n")
+        gcode = []
+        gcode.append(f"(LatheEngraver G-code Wrapping)")
+        gcode.append(f"(Ref. Diam: {self.diam}, Projection: {self.radius_adjust}, G-code width: {self.width})")
+        gcode.append(f"(Profile distance: {profile_dist:0.2f}, X-scale factor: {xtoscale}, A-scale factor: {sf})")
+        gcode.append("(Safe moves added)")
+        gcode.extend([f"G90 G21",f"G0 {safe}{sign}{10+self.clearance:0.4f}",f"G0 X{first_x:0.2f}"])
+        a_offset = 0
+        first_move = False
+        for j in range(0, self.segments):
+            a_offset=arots*(j)
+            for line in self.gcr.generategcode(temp,
+                                                Rstock=self.diam/2,
+                                                no_variables=True,
+                                                Wrap="SPECIAL",
+                                                FSCALE="None",
+                                                do_oval=self.do_oval,
+                                                a_offset=a_offset):
+                if j < self.segments and line.startswith("M30"):
+                    continue
+                else:
+                    if not first_move and line.startswith("G0"):
+                        #parse to see if this is a G0 that goes to some X and Z value
+                        x,z,b = self._parse_g0(line)
+                        first_move = True
+                        gcode.extend([f"G0 B{b}",f"G0 X{x}",f"G0 Z{z}"])
+                    gcode.append(f"{line}")
+            gcode.append("G0 A0")
+            next_a = a_offset+arots
+            gcode.append(f"G0 A{next_a:0.4f}")
 
-            newfile.write(f"G90 G21\n")
-            newfile.write(f"G0 {safe}{sign}{10+self.clearance:0.4f}\n")
-            newfile.write(f"G0 X{first_x:0.2f}\n")
-            #single case
-            a_offset = 0
-            for j in range(0, self.segments):
-                a_offset=arots*(j)
-                for line in self.gcr.generategcode(temp,
-                                                   Rstock=self.diam/2,
-                                                   no_variables=True,
-                                                   Wrap="SPECIAL",
-                                                   FSCALE="None",
-                                                   do_oval=self.do_oval,
-                                                   a_offset=a_offset):
-                    if j < self.segments and line.startswith("M30"):
-                        continue
-                    else:
-                        newfile.write(f"\n{line}")
-                newfile.write("\nG0 A0")
-                next_a = a_offset+arots
-                newfile.write(f"\nG0 A{next_a:0.4f}")
+        with open(path_on_disk,"w") as newfile:
+            for line in gcode:
+                newfile.write(f"\n{line}")
 
         self.send_le_clear()
 
