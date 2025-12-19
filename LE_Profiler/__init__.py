@@ -44,7 +44,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.segments = 0
         self.datafolder = None
         self.increment = 0.5
-        self.smooth_points = 12
+        self.smooth_points = 36
         self.weak_laser = 0
         self.singleB = False
         self.risky_clearance = False
@@ -62,7 +62,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.gcr = G_Code_Rip.G_Code_Rip()
         self.smooth_points = int(self._settings.get(["smooth_points"]))
         self.increment  = float(self._settings.get(["increment"]))
-        self.tool_length = float(self._settings.get(["tool_length"]))
+        #self.tool_length = float(self._settings.get(["tool_length"]))
+        self.use_m3 = bool(self._settings.get(["use_m3"]))
         self.weak_laser = self._settings.global_get(["plugins", "latheengraver", "weakLaserValue"])
 
         storage = self._file_manager._storage("local")
@@ -73,10 +74,10 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
     def get_settings_defaults(self):
         return dict(
-            increment=0.5,
-            smooth_points=12,
-            tool_length=135,
+            increment=0.25,
+            smooth_points=36,
             default_segments=1,
+            use_m3=False
             )
     def on_settings_save(self, data):
         octoprint.plugin.SettingsPlugin.on_settings_save(self, data)
@@ -100,6 +101,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
     def creategraph(self, filepath):
         folder = self._settings.getBaseFolder("uploads")
         filename = f"{folder}/{filepath}"
+        self.do_oval = False
         
         datapoints = []
         segments = []
@@ -307,7 +309,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 
         return depth
     
-    def x_to_arc(self, profile_points, distance, start=True):
+    def x_to_arc(self, profile_points, distance, start=True, raw=False):
         #returns the X coordinate in our profile point that will give the arc of the length, distance
         pp = profile_points
         
@@ -327,6 +329,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         solution = root_scalar(root_func, bracket=bracket, method='brentq')
         if solution.converged:
             x_raw = solution.root
+            if raw:
+                return x_raw
             closest_x = min(pp, key=lambda x: abs(x - x_raw))
             self._logger.info(f"converged solution: {solution.root}, closest: {closest_x}")
             return closest_x
@@ -404,6 +408,10 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         pass_list = []
         profile_points = []
         feed = self.feed
+        if self.use_m3:
+            fire = "M3"
+        else:
+            fire = "M4"
         command_list.append(f"(LatheEngraver Laser job)")
         command_list.append(f"(Min and Max values: {self.vMin}, {self.vMax} )")
         command_list.append(f"(Tool length: {self.tool_length})")
@@ -436,6 +444,9 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
         #move to start
         start = self.calc_coords(profile_points[0])
+        command_list.append("G90")
+        command_list.append("G94")
+        command_list.append(f"F{self.feed}")
         command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
         move_1 = f"G0 X{start['X']:0.4f}"
         move_2 = f"G0 Z{start['Z']:0.4f} B{start['B']:0.4f}"
@@ -448,10 +459,11 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
         command_list.append(f"G0 X{start['X']:0.4f} Z{start['Z']:0.4f} A0 B{start['B']:0.4f}")
         if self.test:
-            command_list.append(f"M4 S{self.weak_laser}")
+            command_list.append(f"{fire} S{self.weak_laser}")
         else:
-            command_list.append(f"M4 S{self.power}")
+            command_list.append(f"{fire} S{self.power}")
         
+        command_list.append(f"F{self.feed}")
         #this is to handle A rotations
         i = -1
         previous_coord = None
@@ -459,11 +471,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             
             i+=1 
             coord = self.calc_coords(each)
-            if previous_coord:
-                feed = self.calc_feedrate(previous_coord, coord)
-            else:
-                feed = self.feed
-            pass_list.append(f"G93 G90 G1 X{coord['X']:0.3f} Z{coord['Z']:0.3f} A{seg_rot*i:0.3f} B{coord['B']:0.3f} F{feed}")
+            pass_list.append(f"G1 X{coord['X']:0.3f} Z{coord['Z']:0.3f} A{seg_rot*i:0.3f} B{coord['B']:0.3f}")
 
             previous_coord = coord
         #make sure we move back to last A position before starting reverse pass
@@ -480,7 +488,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 command_list.extend(pass_list)
                 command_list.append("G4 P2")
                 command_list.append("M0")
-                command_list.append(f"M4 S{self.power}")
+                command_list.append(f"{fire} S{self.power}")
                 pass_list = pass_list[::-1]
                 command_list.extend(pass_list)
                 pass_list = pass_list[::-1]
@@ -529,6 +537,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         #Preamble stuff here
         command_list.append("G21")
         command_list.append("G90")
+        command_list.append("G94")
 
         reference_radius = self.diam / 2
         max_radius = 0
@@ -551,7 +560,9 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         pass_info = divmod(max_z, self.step_down)
         passes = pass_info[0] #quotient
         last_pass_depth = pass_info[1] #remainder
-        if last_pass_depth:
+        self._logger.info(f"Passes = {passes}, Last Pass = {last_pass_depth}")
+
+        if last_pass_depth > 0.0:
             total_passes = int(passes + 1)
         else:
             total_passes = int(passes)
@@ -599,7 +610,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             command_list.append(f"G0 B{start['B']:0.4f}")
             command_list.append(f"G0 X{safe_x_start:0.4f}")
             command_list.append(f"G0 Z{safe_z_start:0.4f}")
-            current_a = current_a+start_a
+            #current_a = current_a+start_a #why was this here?
             a_measure = current_a
             for a_step in range(num_a_steps):
                 section_done = False
@@ -615,45 +626,49 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
                 for depth in range(1,total_passes+1):
                     previous_coord = None
+                    #nominal depth, the most we can hit on this pass, numbers are positive!
                     nominal_depth = depth * self.step_down
-                                
+
+                    #After the first pass, check if we are already greater value than the calculated max_zmod, which is calculated during first pass
                     if depth > 1:
-                        #self._logger.debug(f"Depth={depth}, max_zmod={max_zmod}, nominal={nominal_depth}, previous={previous_depth}")
+                        self._logger.debug(f"Depth={depth}, max_zmod={max_zmod}, nominal={nominal_depth}, previous={previous_depth}")
+                        if section_done:
+                            continue
+                        #need to verify that previous depth already reached, must be an AND
                         if nominal_depth >= max_zmod and previous_depth >= max_zmod:
-                            #self._logger.info(f"Max Z mod reached: {max_zmod:.2f}, stopping section")
+                            self._logger.debug(f"Max Z mod reached at: {max_zmod:.2f}, stopping section")
                             section_done = True
-                        if nominal_depth >= max_zmod:
+                        if nominal_depth >= max_zmod or math.isclose(nominal_depth, max_zmod, abs_tol=0.02):
                             nominal_depth = max_zmod
                     
-                     #this cut depth
+                    #always doing at least one pass
                     if depth == 1:
                         thiscut = nominal_depth
-                        #self._logger.debug("First pass...")
+                        self._logger.debug("First pass...")
                         section_done = False
                     else:
                         thiscut = nominal_depth - previous_depth
-                    #self._logger.debug(f"Cut depth on this pass: {thiscut}")
+                    
                     previous_depth = nominal_depth
                     i = 0
                     if not section_done:
+                        self._logger.debug(f"Cut depth on this pass: {thiscut}")
                         #self._logger.debug("Section not done, doing  pass")
                         max_zmod = 0
                         x_iter = profile_points if a_direction == 1 else reversed(profile_points)
                         for x in x_iter:
                             coord = self.calc_coords(x)
                             retract_x, retract_z = self.cut_depth_value(coord, 5)
-                            if previous_coord:
-                                feed = self.calc_feedrate(previous_coord, coord)
-                            else:
-                                feed = self.feed
+                            feed = self.feed
                             previous_coord = coord
                             #get radius at our current X position
                             current_radius = reference_radius + (self.spline(x) - self.referenceZ)
                             #just use z_mod values at max_radius for inverts
                             if self.invert_facet:
                                 current_radius = max_radius
-                            #get adjusted values for Z
-                            relative_a = current_a - facet_start_a
+                            #this relative_a value is doing weird things
+                            #relative_a = current_a - facet_start_a
+                            relative_a = a_step*delta_degrees+delta_degrees
                             z_mod = self.sagitta_distance(math.radians(relative_a),current_radius)
                             z_mod = z_mod * self.depth_mod  # Apply depth modifier
                             #self._logger.debug(f"adjusted z_mod = {z_mod}")
@@ -663,10 +678,11 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         
                             if z_mod > max_zmod:
                                 max_zmod = z_mod
-                                #self._logger.info(f"New max Z mod: {max_zmod:.2f}")
+                                self._logger.debug(f"New max Z mod: {max_zmod:.2f}")
 
                             if z_mod > nominal_depth:
                                 z_mod = nominal_depth
+                                #this only happens on first pass because depth == 1
                                 if depth == 1 and ease_down:
                                     fract = nominal_depth/60
                                     z_mod = fract*(i+1)
@@ -692,6 +708,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                             #is this correct?
                             if self.do_oval:
                                 #self._logger.debug(f"Pre-oval depth at {current_a}: {z_mod}")
+                                #negative sign here because we are still working in positive values for z_mod
                                 oval_mod = -self.ovality_mod(x, current_a)
                                 z_mod = z_mod + oval_mod
                                 #self._logger.debug(f"Post-oval depth at {current_a}: {z_mod}")
@@ -699,7 +716,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                             trans_x, trans_z = self.cut_depth_value(coord, -z_mod)  # Adjust depth
                             #handle A rotation parameter
 
-                            facet_list.append(f"G93 G1 X{trans_x:.3f} Z{trans_z:.3f} A{a_move:.3f} B{coord['B']:.3f} F{feed:.1f}")
+                            facet_list.append(f"G1 X{trans_x:.3f} Z{trans_z:.3f} A{a_move:.3f} B{coord['B']:.3f} F{feed:.1f}")
                             i += 1
                         a_direction *= -1        
                     else:
@@ -834,6 +851,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         # Preamble
         command_list.append("G21")
         command_list.append("G90")
+        command_list.append("G94")
         sign, safe = self.safe_retract()
 
         for flute in range(self.segments):
@@ -907,10 +925,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                         command_list.append(f"(lead out, index:{leadout_check} inc:{out_inc} depth:{depth})")
 
                     coord = self.calc_coords(each)
-                    if previous_coord:
-                        feed = self.calc_feedrate(previous_coord, coord)
-                    else:
-                        feed = self.feed
+                    feed = self.feed
                     previous_coord = coord
 
                     if seg_rot:
@@ -936,7 +951,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
                     trans_x, trans_z = self.cut_depth_value(coord, depth)
                     command_list.append(
-                        f"G93 G90 G1 X{trans_x:.3f} Z{trans_z:.3f} A{current_a:.3f} B{coord['B']:.3f} F{feed:.1f}"
+                        f"G1 X{trans_x:.3f} Z{trans_z:.3f} A{current_a:.3f} B{coord['B']:.3f} F{feed:.1f}"
                     )
                 # Retract at end of pass
                 trans_x, trans_z = self.cut_depth_value(coord, 5)
@@ -992,7 +1007,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         basefolder = self._settings.getBaseFolder("uploads")
         self.gcr.Read_G_Code(f"{basefolder}/{self.selected_file}", XYarc2line=True, units="mm")
         #profile name
-        self._logger.debug(self.gcr.g_code_data)
+        #self._logger.debug(self.gcr.g_code_data)
         #make the first move a safe X,Z move
 
         profile_name = self.name.removesuffix(".txt")
@@ -1005,6 +1020,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self._logger.info(f"Profile distance: {profile_dist}, Scale factors: {sf}, New width:{new_width}")
         #now get the X position that will correspond to that length along thearc
         target_x = self.x_to_arc(profile_points, new_width, start=True)
+
+        #realizing that this is correct for the first
         
         a = target_x-self.vMin
 
@@ -1040,7 +1057,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                         self.do_oval,
                                         plugin=self)
                                         
-        self._logger.info(temp)
+        #self._logger.info(temp)
         #get first X and Z moves that are not complex
         first_x = None
         first_z = None
@@ -1082,8 +1099,13 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     if not first_move and line.startswith("G0"):
                         #parse to see if this is a G0 that goes to some X and Z value
                         x,z,b = self._parse_g0(line)
-                        first_move = True
-                        gcode.extend([f"G0 B{b}",f"G0 X{x}",f"G0 Z{z}"])
+                        if x is None or z is None:
+                            pass
+                        else:
+                            first_move = True
+                            if b is not None:
+                                gcode.append(f"G0 B{b}")
+                            gcode.extend([f"G0 X{x}",f"G0 Z{z}"])
                     gcode.append(f"{line}")
             gcode.append("G0 A0")
             next_a = a_offset+arots
