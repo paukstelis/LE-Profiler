@@ -1276,7 +1276,7 @@ class G_Code_Rip:
                     else:
                         s = True
                     newpos_x = plugin.x_to_arc(pp,xdiff,start=s,raw=True)
-                    plugin._logger.info(f"xdiff is {xdiff}, raw X is: {newpos_x}, calc X is: {POS[0]}")
+                    plugin._logger.debug(f"xdiff is {xdiff}, raw X is: {newpos_x}, calc X is: {POS[0]}")
                     POS[0] = newpos_x
                   
                 pos = self.coordinate_modification(POS)
