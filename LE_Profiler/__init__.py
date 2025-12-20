@@ -54,6 +54,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.feedscale = 1.0
         self.writing = False
         self.conventional = False
+        self.use_m3 = False
 
         #self.watched_path = self._settings.global_get_basefolder("watched")
 
@@ -64,6 +65,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.increment  = float(self._settings.get(["increment"]))
         #self.tool_length = float(self._settings.get(["tool_length"]))
         self.use_m3 = bool(self._settings.get(["use_m3"]))
+        self._logger.info(f"Use m3 is {self.use_m3}")
         self.weak_laser = self._settings.global_get(["plugins", "latheengraver", "weakLaserValue"])
 
         storage = self._file_manager._storage("local")
@@ -77,8 +79,14 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             increment=0.25,
             smooth_points=36,
             default_segments=1,
-            use_m3=False
+            use_m3=False,
             )
+    
+    def get_template_configs(self):
+        return [
+            dict(type="settings", name="Profiler", custom_bindings=False)
+        ]
+    
     def on_settings_save(self, data):
         octoprint.plugin.SettingsPlugin.on_settings_save(self, data)
         self.initialize()
