@@ -55,6 +55,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.writing = False
         self.conventional = False
         self.use_m3 = False
+        self.feed_correct = 2
 
         #self.watched_path = self._settings.global_get_basefolder("watched")
 
@@ -77,7 +78,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
     def get_settings_defaults(self):
         return dict(
             increment=0.25,
-            smooth_points=36,
+            smooth_points=100,
             default_segments=1,
             use_m3=False,
             )
@@ -344,17 +345,39 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             return closest_x
         else:
             raise ValueError("Failed to find X coordinate for the given arc length.")
+
+    def linear_distance_with_b(self, coord1, coord2):
+        """
+        Linear travel distance between two coordinates considering:
+        - X/Z translation
+        - Arc travel due to B rotation at radius = self.tool_length
+        Assumes simultaneous motion; we combine components orthogonally.
+        """
+        x1, z1, b1 = coord1["X"], coord1["Z"], coord1["B"]
+        x2, z2, b2 = coord2["X"], coord2["Z"], coord2["B"]
+        dx = x2 - x1
+        dz = z2 - z1
+        dtheta = math.radians(b2 - b1)
+        arc = abs(self.tool_length * dtheta)
+        # Combine translational and rotational arc components
+        return math.sqrt(dx*dx + dz*dz + arc*arc)
         
     def calc_feedrate(self, coord1, coord2):
         x1, z1 = coord1["X"], coord1["Z"]
         x2, z2 = coord2["X"], coord2["Z"]
-        distance = math.sqrt((x2 - x1) ** 2 + (z2 - z1) ** 2)
+        dist = math.sqrt((x2 - x1) ** 2 + (z2 - z1) ** 2)
+        distance = self.linear_distance_with_b(coord1, coord2)
+        arc = self.get_arc(x1, x2)
+        self._logger.info(f"Arc: {arc} Distance linear: {dist}, distance with B:{distance}")
 
-        if self.feed > 0:
-            time_min = (distance / self.feed)
-            return (1 / time_min)
-        else:
-            return 0.0
+        #if self.feed > 0:
+        #    time_min = (distance / self.feed)
+        #    return (1 / time_min)
+        #else:
+        #    return 0.0
+
+        newspeed = self.feed * (1/arc)
+        return newspeed
         
     def safe_retract(self):
         sign = ""
@@ -434,6 +457,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             if each > self.vMax:
                 continue
             profile_points.append(each)
+        self._logger.info(profile_points)
             #TODO: reverse profile points if it is a Z scan
         #reverse the profile for Z axis
         if self.axis == "Z":
@@ -479,7 +503,28 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             
             i+=1 
             coord = self.calc_coords(each)
-            pass_list.append(f"G1 X{coord['X']:0.3f} Z{coord['Z']:0.3f} A{seg_rot*i:0.3f} B{coord['B']:0.3f}")
+
+            if self.feed_correct == 1:
+                if i >= 1:
+                    linear_distance = abs(self.get_arc(profile_points[i-1],profile_points[i]))
+                    feed = self.feed*(self.increment/linear_distance)
+                    self._logger.debug(f"linear distance: {linear_distance} at profile_point: {profile_points[i]} scaled to feed {feed}")
+
+            if self.feed_correct == 2:
+                if previous_coord:
+                    x1,z1,b1 = previous_coord["X"], previous_coord["Z"], previous_coord["B"]
+                    x2,z2,b2 = coord["X"], coord["Z"], coord["B"]
+                    b1 = np.deg2rad(-b1)
+                    b2 = np.deg2rad(-b2)
+                    xt1 = x1 - self.tool_length*np.sin(b1)
+                    zt1 = z1 - self.tool_length*np.cos(b1)
+                    xt2 = x2 - self.tool_length*np.sin(b2)
+                    zt2 = z2 - self.tool_length*np.cos(b2)
+                    ds = np.sqrt((xt2-xt1)**2 + (zt2-zt1)**2)
+                    feed = self.feed/ds
+                    self._logger.info(f"inverse time mode feed for this step: {feed}")
+
+            pass_list.append(f"G93 G1 X{coord['X']:0.3f} Z{coord['Z']:0.3f} A{seg_rot*i:0.3f} B{coord['B']:0.3f} F{feed:0.1f}")
 
             previous_coord = coord
         #make sure we move back to last A position before starting reverse pass
@@ -505,6 +550,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             command_list.append(f"G0 A{A_rot:0.3f}")
             command_list.append("G92 A0")
             i += 1
+        command_list.append("G94")
         command_list.append("M5")
         command_list.append("M30")
 
