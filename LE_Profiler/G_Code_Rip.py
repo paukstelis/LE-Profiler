@@ -1266,9 +1266,22 @@ class G_Code_Rip:
 
             ###############################################################################
             if mvtype >= 0 and mvtype <=3:
+
+                #only x scan so compare X values:
+                if (not isinstance(POS_LAST[0], complex)):
+                    pp=[POS_LAST[0],POS[0]]
+                    xdiff = abs(POS_LAST[0]-POS[0])
+                    if POS_LAST[0] > POS[0]:
+                        s = False
+                    else:
+                        s = True
+                    newpos_x = plugin.x_to_arc(pp,xdiff,start=s,raw=True)
+                    plugin._logger.debug(f"xdiff is {xdiff}, raw X is: {newpos_x}, calc X is: {POS[0]}")
+                    POS[0] = newpos_x
                   
                 pos = self.coordinate_modification(POS)
                 pos_last = self.coordinate_modification(POS_LAST)
+
                 if self.singleB and not self.currentB and mvtype == 1: #B of the first cutting move is our B for that object
                     self.currentB = pos[3]
 
