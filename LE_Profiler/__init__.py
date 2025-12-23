@@ -695,6 +695,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                             retract_x, retract_z = self.cut_depth_value(coord, 5)
                             if previous_coord:
                                 feed = self.calc_feedrate(previous_coord, coord)
+                            else:
+                                feed = self.feed
                             previous_coord = coord
                             #get radius at our current X position
                             current_radius = reference_radius + (self.spline(x) - self.referenceZ)
