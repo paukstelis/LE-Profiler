@@ -458,7 +458,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         start = self.calc_coords(profile_points[0])
         command_list.append("G90")
         command_list.append("G94")
-        command_list.append(f"F{self.feed}")
+        #command_list.append(f"F{self.feed}")
         command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
         move_1 = f"G0 X{start['X']:0.4f}"
         move_2 = f"G0 Z{start['Z']:0.4f} B{start['B']:0.4f}"
@@ -475,7 +475,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         else:
             command_list.append(f"{fire} S{self.power}")
         
-        command_list.append(f"F{self.feed}")
+        #command_list.append(f"F{self.feed}")
         #this is to handle A rotations
         i = -1
         previous_coord = None
