@@ -461,7 +461,9 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         #command_list.append(f"F{self.feed}")
         command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
         move_1 = f"G0 X{start['X']:0.4f}"
-        move_2 = f"G0 Z{start['Z']:0.4f} B{start['B']:0.4f}"
+        move_2 = f"G0 Z{start['Z']:0.4f}"
+        b_move = f"G0 B{start['B']:0.4f}"
+        command_list.append(b_move)
         if self.axis == "X":
             command_list.append(move_1)
             command_list.append(move_2)
@@ -1318,7 +1320,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
             #self._logger.info(self.x_coords)
             #Move to safe position
-            gcode = ["G90","G21",f"G0 {safe}{sign}{10+self.clearance:0.4f}"]
+            gcode = ["G90","G21","G94",f"G0 {safe}{sign}{10+self.clearance:0.4f}"]
             coord = self.calc_coords(self.target)
             if getB:
                 self._logger.info(f"Calculated B: {coord['B']}")
@@ -1326,9 +1328,9 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self.send_le_message(msg)
                 return
             else:
-                b_move  = (f"G90 B{coord['B']:0.4f}")
-                move_1 = (f"G93 G90 G0 X{coord['X']:0.4f}")
-                move_2 = (f"G93 G90 G0 Z{coord['Z']:0.4f}")
+                b_move  = (f"G0 B{coord['B']:0.4f}")
+                move_1 = (f"G0 X{coord['X']:0.4f}")
+                move_2 = (f"G0 Z{coord['Z']:0.4f}")
                 if self.axis == "X":
                     gcode.append(b_move)
                     gcode.append(move_1)
@@ -1337,6 +1339,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     gcode.append(b_move)
                     gcode.append(move_2)
                     gcode.append(move_1)
+                gcode.append("G94")
                 self._logger.info(gcode)
                 self._printer.commands(gcode)
 
