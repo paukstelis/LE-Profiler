@@ -210,11 +210,11 @@ $(function() {
                             // Z-file mode: Handle Z-axis selections
                             if (self.markerAction() == "Max") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Max'));
-                                if (self.vMin && clickedZ < self.vMin) {
+                                if (self.vMin != null && Number(clickedZ) < Number(self.vMin)) {
                                     alert("Max must be greater than Min");
                                     return;
                                 }
-                                self.vMax = clickedZ;
+                                self.vMax = Number(clickedZ);
                                 self.annotations.push({
                                     x: clickedX,
                                     y: clickedZ,
@@ -229,11 +229,11 @@ $(function() {
                                 plotProfile(true);
                             } else if (self.markerAction() === "Min") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Min'));
-                                if (self.vMax && clickedZ > self.vMax) {
+                                if (self.vMax != null && Number(clickedZ) > Number(self.vMax)) {
                                     alert("Min must be less than Max");
                                     return;
                                 }
-                                self.vMin = clickedZ;
+                                self.vMin = Number(clickedZ);
                                 self.annotations.push({
                                     x: clickedX,
                                     y: clickedZ,
@@ -498,16 +498,17 @@ $(function() {
                  return;
             }
 
+
             if (self.mode() == "flute") {
 
-                if (self.step_down() > self.depth()
-                    || self.step_down() <= 0) {
+                if (Number(self.step_down()) > Number(self.depth())
+                    || Number(self.step_down()) <= 0) {
                     alert("Step down must be less than or equal to total depth and greater than 0.");
                     return;
                 }
             }
 
-            if (self.tool_length() < 10) {
+            if (Number(self.tool_length()) < 10) {
                 alert("You must provide rotation center to surface distance");
                 return;
             }
@@ -628,7 +629,7 @@ $(function() {
     OCTOPRINT_VIEWMODELS.push({
         construct: ProfilerViewModel,
         dependencies: ["loginStateViewModel", "settingsViewModel"],
-        elements: ["#tab_plugin_profiler","#settings_plugin_profiler"],
+        elements: ["#tab_plugin_profiler"],
         onTabChange: true
     });
 });
