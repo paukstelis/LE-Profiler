@@ -498,6 +498,15 @@ $(function() {
                  return;
             }
 
+            if (self.mode() == "facet" || self.mode() == "wrap") {
+
+                if (self.referenceZ === null || Number(self.diam) < 1) {
+                    alert("Reference Diameter must be set.");
+                    return;
+                }
+
+            }
+
 
             if (self.mode() == "flute") {
 
