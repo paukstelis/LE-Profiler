@@ -707,9 +707,13 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                             # angle relative within the facet
                             relative_a = a_step * math.degrees(delta_theta) + math.degrees(delta_theta)  # same as before
                             z_mod = self.sagitta_distance(math.radians(relative_a), current_radius)
-                            z_mod = z_mod * self.depth_mod
+                            
                             if self.invert_facet:
-                                z_mod = max_z - z_mod
+                                #self._logger.info(f"Step {a_step}, max_z: {max_z},z_mod: {z_mod},z_mod*d: {z_mod * self.depth_mod}")
+                                z_mod = max_z - (z_mod * self.depth_mod)
+                                
+                            else:    
+                                z_mod = z_mod * self.depth_mod
 
                             if z_mod > max_zmod:
                                 max_zmod = z_mod
@@ -739,6 +743,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                             # tip position at depth (-z_mod) using cached sin/cos
                             trans_x = baseX[idx] + (-z_mod) * sinB[idx]
                             trans_z = baseZ[idx] + (-z_mod) * cosB[idx]
+
+                            #facet_list.append(f"(minus z_mod: {z_mod:0.1f})")
 
                             a_move = current_a + (seg_rot * i * a_direction) if seg_rot else current_a
                             # plunge reduction only for first emitted move of this pass
