@@ -740,6 +740,11 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                 else:
                                     feed = self.feed
 
+                            if self.do_oval:
+                                # facet uses negative depth direction; subtract ovality
+                                oval_mod = -self.ovality_mod(profile_points[idx], current_a)
+                                z_mod = z_mod + oval_mod
+                                
                             # tip position at depth (-z_mod) using cached sin/cos
                             trans_x = baseX[idx] + (-z_mod) * sinB[idx]
                             trans_z = baseZ[idx] + (-z_mod) * cosB[idx]
@@ -772,8 +777,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 current_a += math.degrees(delta_theta)
                 a_measure += math.degrees(delta_theta)
                 # retract at end of a_step using last index
-                ridx = idx if 'idx' in locals() else 0
-                facet_list.append(f"G0 X{(baseX[ridx] + 5.0 * sinB[ridx]):.3f} Z{(baseZ[ridx] + 5.0 * cosB[ridx]):.3f} B{B_deg[ridx]:.3f}")
+                #ridx = idx if 'idx' in locals() else 0
+                #facet_list.append(f"G0 X{(baseX[ridx] + 5.0 * sinB[ridx]):.3f} Z{(baseZ[ridx] + 5.0 * cosB[ridx]):.3f} B{B_deg[ridx]:.3f}")
 
             completion = time.time() - seg_start
             self._logger.info(f"Facet completion time: {completion}")
