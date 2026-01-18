@@ -11,8 +11,9 @@ import os
 import math
 import time
 from . import G_Code_Rip as G_Code_Rip
-from scipy.interpolate import CubicSpline
+
 from scipy.interpolate import RectBivariateSpline
+
 from scipy.integrate import quad
 from scipy.optimize import root_scalar
 import numpy as np
@@ -58,6 +59,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.conventional = False
         self.use_m3 = False
         self.feed_correct = 2
+        self.use_pchip = False
+        self.splinetype = None
 
         #self.watched_path = self._settings.global_get_basefolder("watched")
 
@@ -71,7 +74,15 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.use_m3 = bool(self._settings.get(["use_m3"]))
         self._logger.info(f"Use m3 is {self.use_m3}")
         self.weak_laser = self._settings.global_get(["plugins", "latheengraver", "weakLaserValue"])
-
+        self.pchip = bool(self._settings.get(["pchip"]))
+        if self.pchip:
+            from scipy.interpolate import PchipInterpolator
+            self.splinetype = PchipInterpolator
+            self._logger.info("Using PChip interpolation")
+        else:
+            from scipy.interpolate import CubicSpline
+            self.splinetype = CubicSpline
+            self._logger.info("Using CubicSpline interpolation")
         storage = self._file_manager._storage("local")
         if storage.folder_exists("wrap"):
             self._logger.info("wrap folder exists")
@@ -189,7 +200,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
         generated_data = []
         #spline used for graphing, all at A=0
-        self.spline = CubicSpline(self.ind_v, self.dep_v)
+        self.spline = self.splinetype(self.ind_v, self.dep_v)
 
         increment = self.increment
         i = min
@@ -219,7 +230,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self.ind_v.append(float(each["z"]))
                 self.dep_v.append(float(each["x"]))
 
-        self.spline = CubicSpline(self.ind_v, self.dep_v)
+        self.spline = self.splinetype(self.ind_v, self.dep_v)
 
     def create_a_spline(self):
         #do any ind_val offsets here?
@@ -557,6 +568,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 newfile.write(f"\n{line}")
 
         self.send_le_clear()
+        self._plugin_manager.send_plugin_message('latheengraver',  dict(type='filerefresh'))
 
     def generate_facet_job(self):
         self._logger.info("Starting Facet job")
@@ -777,8 +789,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 current_a += math.degrees(delta_theta)
                 a_measure += math.degrees(delta_theta)
                 # retract at end of a_step using last index
-                #ridx = idx if 'idx' in locals() else 0
-                #facet_list.append(f"G0 X{(baseX[ridx] + 5.0 * sinB[ridx]):.3f} Z{(baseZ[ridx] + 5.0 * cosB[ridx]):.3f} B{B_deg[ridx]:.3f}")
+                ridx = idx if 'idx' in locals() else 0
+                facet_list.append(f"G0 X{(baseX[ridx] + 5.0 * sinB[ridx]):.3f} Z{(baseZ[ridx] + 5.0 * cosB[ridx]):.3f} B{B_deg[ridx]:.3f}")
 
             completion = time.time() - seg_start
             self._logger.info(f"Facet completion time: {completion}")
@@ -802,6 +814,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             for line in command_list:
                 newfile.write(f"\n{line}")
         self.send_le_clear()
+        self._plugin_manager.send_plugin_message('latheengraver',  dict(type='filerefresh'))
 
     def generate_flute_job(self):
         self._logger.info("Starting Flute job")
@@ -1040,6 +1053,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 newfile.write(f"\n{line}")
 
         self.send_le_clear()
+        self._plugin_manager.send_plugin_message('latheengraver',  dict(type='filerefresh'))
 
     def generate_wrap_job(self):
         #TODO: It makes  more sense to go back and write a parser explicity for this.
@@ -1165,6 +1179,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 newfile.write(f"\n{line}")
 
         self.send_le_clear()
+        self._plugin_manager.send_plugin_message('latheengraver',  dict(type='filerefresh'))
 
     def send_le_message(self, data):
         
