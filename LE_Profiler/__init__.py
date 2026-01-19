@@ -635,8 +635,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         # Start and end angles for the tool center
         start_a = offset_deg
         end_a = facet_angle - offset_deg
-        arc_span = end_a - start_a
-
+        #arc_span = end_a - start_a
+        arc_span = facet_angle
         # Calculate num_a_steps as close as possible to what the user wants
         # (for example, based on initial step_over)
         initial_step_angle = math.degrees((tool_radius * self.step_over) / max_radius)
@@ -648,6 +648,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         step_angle = arc_span / num_a_steps
         step_over = max_radius * math.radians(step_angle) / tool_radius
         self._logger.info(f"Step-over adjusted. Original: {self.step_over}, new: {step_over}")
+        #added_steps = math.ceil(1/self.step_over)
         self.step_over = step_over
         delta_theta = (tool_radius * self.step_over) / max_radius
         delta_degrees = math.degrees(delta_theta)
@@ -688,7 +689,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             self.send_le_message(data)
             facet_list = []
             a_direction = 1
-            facet_start_a = (facet_angle * j) + offset_deg
+            #facet_start_a = (facet_angle * j) + offset_deg
+            facet_start_a = (facet_angle * j)
             command_list.append(f"(Starting facet {j+1} of {self.segments})")
             command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
             command_list.append(f"G0 B{start['B']:0.4f}")
