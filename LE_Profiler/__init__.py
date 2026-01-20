@@ -776,7 +776,10 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                         facet_list.append(f"(Ease down done)")
                                         z_mod = nominal_depth
                                         ease_down = False
-
+                            
+                            #Should allow adaptive on first pass...
+                            if depth == 1 and not ease_down:
+                                thiscut = z_mod
                             # Adaptive feed scaling
                             if self.adaptive and thiscut < self.step_down:
                                 scale = self.feedscale + (1.0 - self.feedscale) * (thiscut / self.step_down)
