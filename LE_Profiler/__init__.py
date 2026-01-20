@@ -751,7 +751,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                             current_radius = max_radius if self.invert_facet else float(radii_arr[idx])
 
                             # angle relative within the facet
-                            relative_a = a_step * math.degrees(delta_theta) + math.degrees(delta_theta)  # same as before
+                            #relative_a = a_step * math.degrees(delta_theta) + math.degrees(delta_theta)  # same as before
+                            relative_a = a_step * math.degrees(delta_theta)
                             z_mod = self.sagitta_distance(math.radians(relative_a), current_radius)
                             
                             if self.invert_facet:
