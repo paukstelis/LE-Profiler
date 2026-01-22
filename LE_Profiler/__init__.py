@@ -790,7 +790,11 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                     feed = self.calc_feedrate(self.feed, previous_coord, {"X": baseX[idx], "Z": baseZ[idx], "B": B_deg[idx]})
                                 else:
                                     feed = self.feed
-                            #Slow everything for the first set of cuts for inverts
+                            
+                            # plunge reduction only for first emitted move of this pass
+                            if plunge:
+                                feed = self.feed / 2.0
+
                             if j == 0 and a_step == 0 and self.invert_facet:
                                 if previous_coord:
                                     feed = self.calc_feedrate(self.fpass, previous_coord, {"X": baseX[idx], "Z": baseZ[idx], "B": B_deg[idx]})
@@ -809,9 +813,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                             #facet_list.append(f"(minus z_mod: {z_mod:0.1f})")
 
                             a_move = current_a + (seg_rot * i * a_direction) if seg_rot else current_a
-                            # plunge reduction only for first emitted move of this pass
-                            if plunge:
-                                feed = self.feed / 2.0
+                            
                             facet_list.append(f"G93 G1 X{trans_x:.3f} Z{trans_z:.3f} A{a_move:.3f} B{B_deg[idx]:.3f} F{feed:.1f}")
                             previous_coord = {"X": baseX[idx], "Z": baseZ[idx], "B": B_deg[idx]}
                             plunge = False
