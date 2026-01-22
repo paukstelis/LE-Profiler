@@ -25,6 +25,7 @@ $(function() {
         self.increment = ko.observable(0.25);
         self.adaptive = ko.observable(0);
         self.feedscale = ko.observable(1.0);
+        self.fpass = ko.observable(200);
         self.ignore_oval = ko.observable(0);
         self.conventional = ko.observable(0);
         self.reversed = false;

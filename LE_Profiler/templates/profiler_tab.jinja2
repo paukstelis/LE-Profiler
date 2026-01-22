@@ -221,6 +221,12 @@
                         <label for="fmod1">Adaptive feedrate max scale:</label>
                         <input id="fmod1" type="number" min="1" max="10" step="any" data-bind="value: feedscale">
                     </div>
+
+                    <div class="facet">
+                        <label title="Feed for the first pass of inverted facets. Allows deeper overall cuts." for="fpass">First pass feedrate:</label>
+                        <input id="fpass" type="number" step="any" data-bind="value: fpass">
+                    </div>
+
                     <div class="flute facet wrap">
                         <label title="Ignore ovality scan (if present)" for="ignore_oval">Ignore ovality data</label>
                         <input id="ignore_oval" type="checkbox" data-bind="checked: ignore_oval">

@@ -55,6 +55,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.do_oval = False
         self.adaptive = False
         self.feedscale = 1.0
+        self.fpass = 200
         self.writing = False
         self.conventional = False
         self.use_m3 = False
@@ -360,7 +361,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         else:
             raise ValueError("Failed to find X coordinate for the given arc length.")
 
-    def calc_feedrate(self, coord1, coord2):
+    def calc_feedrate(self, thefeed, coord1, coord2):
         x1, z1, b1 = coord1["X"], coord1["Z"], coord1["B"]
         x2, z2, b2 = coord2["X"], coord2["Z"], coord2["B"]
         b1 = np.deg2rad(-b1)
@@ -370,7 +371,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         xt2 = x2 - self.tool_length*np.sin(b2)
         zt2 = z2 - self.tool_length*np.cos(b2)
         ds = np.sqrt((xt2-xt1)**2 + (zt2-zt1)**2)
-        feed = self.feed/ds
+        feed = thefeed/ds
         return feed
 
     def safe_retract(self):
@@ -520,7 +521,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
             if self.feed_correct == 2:
                 if previous_coord:
-                    feed = self.calc_feedrate(previous_coord, coord)
+                    feed = self.calc_feedrate(self.feed, previous_coord, coord)
                 else:
                     feed = self.feed
 
@@ -783,12 +784,18 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                             # Adaptive feed scaling
                             if self.adaptive and thiscut < self.step_down:
                                 scale = self.feedscale + (1.0 - self.feedscale) * (thiscut / self.step_down)
-                                feed = (self.feed if previous_coord is None else self.calc_feedrate(previous_coord, {"X": baseX[idx], "Z": baseZ[idx], "B": B_deg[idx]})) * scale
+                                feed = (self.feed if previous_coord is None else self.calc_feedrate(self.feed, previous_coord, {"X": baseX[idx], "Z": baseZ[idx], "B": B_deg[idx]})) * scale
                             else:
                                 if previous_coord:
-                                    feed = self.calc_feedrate(previous_coord, {"X": baseX[idx], "Z": baseZ[idx], "B": B_deg[idx]})
+                                    feed = self.calc_feedrate(self.feed, previous_coord, {"X": baseX[idx], "Z": baseZ[idx], "B": B_deg[idx]})
                                 else:
                                     feed = self.feed
+                            #Slow everything for the first set of cuts for inverts
+                            if j == 0 and a_step == 0 and self.invert_facet:
+                                if previous_coord:
+                                    feed = self.calc_feedrate(self.fpass, previous_coord, {"X": baseX[idx], "Z": baseZ[idx], "B": B_deg[idx]})
+                                else:
+                                    feed = self.fpass
 
                             if self.do_oval:
                                 # facet uses negative depth direction; subtract ovality
@@ -1026,7 +1033,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
                     coord = self.calc_coords(each)
                     if previous_coord:
-                        feed = self.calc_feedrate(previous_coord, coord)
+                        feed = self.calc_feedrate(self.feed, previous_coord, coord)
                     else:
                         feed = self.feed
 
