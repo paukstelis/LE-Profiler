@@ -11,7 +11,8 @@ import os
 import math
 import time
 from . import G_Code_Rip as G_Code_Rip
-
+from svgpathtools import svg2paths2
+from scipy.interpolate import interp1d
 from scipy.interpolate import RectBivariateSpline
 
 from scipy.integrate import quad
@@ -63,6 +64,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.use_pchip = False
         self.splinetype = None
 
+        self.svg_profile_path = None
+        self.svg_a_offset = None
         #self.watched_path = self._settings.global_get_basefolder("watched")
 
     def initialize(self):
@@ -302,7 +305,65 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             z_center = z_value + ((self.tool_length) * math.sin( normdir*normal))
             return_coord = {"X": z_center-self.tool_length, "Z": x_center, "B": b_angle}
         return return_coord
-    
+
+    def load_svg_a_profile(self, svg_path: str, surface_length: float, samples: int = 2000):
+        basefolder = self._settings.getBaseFolder("uploads")
+        if not svg_path or surface_length <= 0:
+            self.svg_a_offset = None
+            return
+
+        try:
+            paths, _, _ = svg2paths2(f"{basefolder}/{svg_path}")
+        except Exception as exc:
+            self._logger.error(f"Failed to read SVG '{svg_path}': {exc}")
+            self.svg_a_offset = None
+            return
+
+        if not paths:
+            self._logger.error(f"SVG '{svg_path}' has no path data")
+            self.svg_a_offset = None
+            return
+
+        main_path = paths[0]
+        path_length = main_path.length()
+        if path_length == 0:
+            self._logger.error(f"SVG '{svg_path}' path length is zero")
+            self.svg_a_offset = None
+            return
+        # Sample evenly along the SVG path
+        t_vals = np.linspace(0, 1, samples)
+        points = np.array([main_path.point(t) for t in t_vals])
+        svg_x = points.real
+        svg_y = points.imag
+
+        # Normalize so the first point is origin and inverse sign for Y
+        svg_x -= svg_x[0]
+        svg_y -= svg_y[0]
+
+        sf = surface_length/path_length
+
+        # Guard against non-monotonic X by forcing cumulative distance instead
+        if not np.all(np.diff(svg_x) >= 0):
+            arc_progress = np.linspace(0, path_length, samples)
+        else:
+            arc_progress = svg_x * (path_length / svg_x[-1] if svg_x[-1] else 1)
+
+        # Scale X-domain to match actual surface length
+        surface_progress = arc_progress * (surface_length / path_length)
+
+        # Build interpolator (extrapolate outside range)
+        self.svg_a_offset = interp1d(
+            surface_progress,
+            -svg_y*sf,
+            kind="linear",
+            fill_value="extrapolate",
+            assume_sorted=True,
+        )
+        self._logger.info(
+            f"SVG A-offset loaded: path_len={path_length:.2f}mm, "
+            f"surface_len={surface_length:.2f}mm"
+        )
+
     def cut_depth_value(self, coord, depth):
         trans_x = coord["X"] + depth*math.sin(math.radians(-coord["B"]))
         trans_z = coord["Z"] + depth*math.cos(math.radians(-coord["B"]))
@@ -589,6 +650,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         
         profile_points = self.resample_profile()
         self._logger.info(profile_points)
+        
         # Preamble
         command_list.append("G21")
         command_list.append("G90")
@@ -600,6 +662,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         pp_arr = np.asarray(profile_points, dtype=float)
         z_vals = self.spline(pp_arr)  # vectorized CubicSpline evaluation
         radii_arr = reference_radius + (z_vals - self.referenceZ)
+        self._logger.debug(f"Radii_arr: {radii_arr}")
         max_radius = float(np.max(radii_arr))
         command_list.append(f"(Max radius: {max_radius})")
 
@@ -616,18 +679,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         last_pass_depth = pass_info[1]
         self._logger.info(f"Passes = {passes}, Last Pass = {last_pass_depth}")
         total_passes = int(passes + 1) if last_pass_depth > 0.0 else int(passes)
-        '''
-        # Angles
-        tool_radius = self.cutter_diam / 2
-        facet_angle = 360 / self.segments
-        delta_theta = (tool_radius * self.step_over) / max_radius
-        delta_degrees = math.degrees(delta_theta)
-        start_a = delta_degrees
-        end_a = facet_angle - delta_degrees
-        #num_a_steps = int(math.ceil(facet_angle) / delta_degrees)
-        num_a_steps = int((end_a - start_a) / delta_degrees) + 1
-        self._logger.info(f"Depth passes: {total_passes}, Facet angle: {facet_angle}, Delta degrees: {math.degrees(delta_theta)}, Num A steps: {num_a_steps}")
-        '''
+
         tool_radius = self.cutter_diam / 2
         facet_angle = 360 / self.segments
         offset_rad = tool_radius / max_radius
@@ -657,8 +709,26 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         num_a_steps = num_a_steps+1 #this adjusts for being off by one delta_theta
         self._logger.info(f"Depth passes: {total_passes}, Overall facet angle: {facet_angle}, Offset degrees: {offset_deg}, Delta degrees (step-over): {math.degrees(delta_theta)}, Num A steps: {num_a_steps}")
 
-
-        # PRECOMPUTE: coords and B-derived trig at zero depth (reuse across all passes)
+        #pre-calc a-rotation profile points
+        surface_length = 0.0    
+        svg_angle_arr = None
+        if self.svg_profile_path and profile_points:
+            surface_progress = np.zeros(len(profile_points), dtype=float)
+            for idx in range(1, len(profile_points)):
+                surface_progress[idx] = surface_progress[idx - 1] + abs(
+                    self.get_arc(profile_points[idx - 1], profile_points[idx])
+                )
+            surface_length = surface_progress[-1]
+            self.load_svg_a_profile(self.svg_profile_path, surface_length)
+            if self.svg_a_offset:
+                offsets_mm = self.svg_a_offset(surface_progress)
+                svg_angle_arr = np.zeros(len(profile_points), dtype=float)
+                for idx, mm in enumerate(offsets_mm):
+                    radius = radii_arr[idx]
+                    svg_angle_arr[idx] = math.degrees(mm / radius) if radius > 0 else 0.0
+                #svg_angle_arr = np.diff(svg_angle_arr, prepend=svg_angle_arr[0])
+            self._logger.debug(svg_angle_arr)
+        # coords and B-derived trig at zero depth (reuse across all passes)
         coords_cache = [self.calc_coords(x) for x in profile_points]
         baseX = np.array([c["X"] for c in coords_cache], dtype=float)
         baseZ = np.array([c["Z"] for c in coords_cache], dtype=float)
@@ -667,10 +737,14 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         sinB = np.sin(B_rad_neg)
         cosB = np.cos(B_rad_neg)
 
-        # A-axis rotation per move
+        # A-axis rotation per move, only used if profile is NOT used
         seg_rot = self.arotate / (len(profile_points) - 1)
         self._logger.info(f"Segment rotation: {seg_rot}")
         A_rot = 360 / self.segments
+
+        #FIXME later
+        if self.svg_a_offset and seg_rot:
+            seg_rot = 0.0
 
         # Safe positions
         sign, safe = self.safe_retract()
@@ -700,7 +774,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
             current_a = facet_start_a
             a_measure = current_a
-
+            step_start = facet_start_a
             for a_step in range(num_a_steps):
                 plunge = True
                 section_done = False
@@ -749,6 +823,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                         i = 0
                         for idx in idx_iter:
                             # radius for this x
+                            cr = float(radii_arr[idx])
                             current_radius = max_radius if self.invert_facet else float(radii_arr[idx])
 
                             # angle relative within the facet
@@ -765,7 +840,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
                             if z_mod > max_zmod:
                                 max_zmod = z_mod
-                                self._logger.debug(f"New max Z mod: {max_zmod:.2f}")
+                                #self._logger.debug(f"New max Z mod: {max_zmod:.2f}")
 
                             if z_mod > nominal_depth:
                                 z_mod = nominal_depth
@@ -801,19 +876,26 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                 else:
                                     feed = self.fpass
 
+                            #default
+                            a_move = current_a
+
+                            #These need to be mutually exclusive
+                            if seg_rot:
+                                a_move = current_a + (seg_rot * i * a_direction)
+                            
+                            if svg_angle_arr is not None:
+                                a_move = step_start + (svg_angle_arr[idx])
+                                #self._logger.debug(f"A move with svg: {a_move}, svg angle {svg_angle_arr[idx]}")
+                            
                             if self.do_oval:
                                 # facet uses negative depth direction; subtract ovality
-                                oval_mod = -self.ovality_mod(profile_points[idx], current_a)
+                                oval_mod = -self.ovality_mod(profile_points[idx], a_move)
                                 z_mod = z_mod + oval_mod
                                 
                             # tip position at depth (-z_mod) using cached sin/cos
                             trans_x = baseX[idx] + (-z_mod) * sinB[idx]
                             trans_z = baseZ[idx] + (-z_mod) * cosB[idx]
 
-                            #facet_list.append(f"(minus z_mod: {z_mod:0.1f})")
-
-                            a_move = current_a + (seg_rot * i * a_direction) if seg_rot else current_a
-                            
                             facet_list.append(f"G93 G1 X{trans_x:.3f} Z{trans_z:.3f} A{a_move:.3f} B{B_deg[idx]:.3f} F{feed:.1f}")
                             previous_coord = {"X": baseX[idx], "Z": baseZ[idx], "B": B_deg[idx]}
                             plunge = False
@@ -830,11 +912,12 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                         facet_list.append(f"G0 X{retract_x:.3f} Z{retract_z:.3f} B{B_deg[ridx]:.3f}")
 
                     ease_down = False
-                    if seg_rot:
+                    if seg_rot or svg_angle_arr is not None:
                         current_a = a_move
 
                 current_a += math.degrees(delta_theta)
                 a_measure += math.degrees(delta_theta)
+                step_start += math.degrees(delta_theta)
                 # retract at end of a_step using last index
                 ridx = idx if 'idx' in locals() else 0
                 facet_list.append(f"G0 X{(baseX[ridx] + 5.0 * sinB[ridx]):.3f} Z{(baseZ[ridx] + 5.0 * cosB[ridx]):.3f} B{B_deg[ridx]:.3f}")
@@ -853,9 +936,15 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         command_list.append("M30")
         output_name = self.name.removesuffix(".txt")
         invert = ""
+        rot = ""
         if self.invert_facet:
             invert = "inv"
-        output_name = f"Facet_S{self.segments}_Arot{self.arotate}_SD{self.step_down}_{invert}_"+output_name+".gcode"
+        if self.arotate:
+            rot = f"_Arot{self.arotate}"
+        if self.svg_a_offset:
+            svg_name = os.path.basename(self.svg_profile_path).removesuffix(".svg")
+            rot = f"_{svg_name}"
+        output_name = f"{invert}Facet_S{self.segments}{rot}_SD{self.step_down}_"+output_name+".gcode"
         path_on_disk = "{}/{}".format(self._settings.getBaseFolder("watched"), output_name)
         with open(path_on_disk,"w") as newfile:
             for line in command_list:
@@ -1264,6 +1353,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             return
         
         if command == "write_job":
+            self.svg_profile_path = None
+
             self.plot_data = data["plot_data"]
             self.mode = data["mode"]
             self.tool_length = float(data["tool_length"])
@@ -1343,6 +1434,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self.depth = float(data["depth"])
                 self.adaptive = bool(data["adaptive"])
                 self.feedscale = float(data["feedscale"])
+                self.svg_profile_path = data["svgfile"]["path"]
 
                 if self.segments < 3:
                     self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
@@ -1362,6 +1454,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     return
                 self.generate_facet_job()
                 return
+            
         if command == "get_arc_length":
             self.vMax = float(data["vMax"])
             self.vMin = float(data["vMin"])

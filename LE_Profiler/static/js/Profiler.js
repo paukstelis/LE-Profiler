@@ -56,6 +56,8 @@ $(function() {
         self.step_over = ko.observable(0.5);
         self.facet_invert = ko.observable(0);
         self.depth_mod = ko.observable(1.0);
+        self.selectedSVGFile = null;
+        self.svgfiles = null;
 
         self.mode = ko.observable("none");
         
@@ -81,6 +83,7 @@ $(function() {
                 $(".wrap").hide();
                 $(".flute").hide();
                 $(".facet").show();
+                self.fetchsvgFiles();
             }
         }
 
@@ -107,6 +110,20 @@ $(function() {
                     files.sort((a,b) => { return a.name.localeCompare(b.name) });
                     self.wrapfiles = files;
                     populateFileSelector(files, "#wrapFileSelect", "gcode");
+                })
+                .fail(function() {
+                    console.error("Failed to fetch GCode files.");
+                });
+        };
+
+        self.fetchsvgFiles = function() {
+            OctoPrint.files.listForLocation("local/cylshape", false)
+                .done(function(data) {
+                    var files = data.children;
+                    console.log(files);
+                    files.sort((a,b) => { return a.name.localeCompare(b.name) });
+                    self.svgfiles = files;
+                    populateFileSelector(files, "#svgFileSelect", "machinecode");
                 })
                 .fail(function() {
                     console.error("Failed to fetch GCode files.");
@@ -352,6 +369,13 @@ $(function() {
             self.width = bgs_width;
         });
 
+        $("#svgFileSelect").on("change", function () {
+            var filePath = $("#svgFileSelect option:selected").attr("download");
+            if (!filePath) return;
+            var theindex = $("#svgFileSelect option:selected").attr("index");
+            self.selectedSVGFile = self.svgfiles[theindex];
+        });
+
         // When a file is selected, load and plot the profile
         $("#scan_file_select").on("change", function () {
             var filePath = $("#scan_file_select option:selected").attr("path");
@@ -545,6 +569,7 @@ $(function() {
                 vMax: self.vMax,
                 vMin: self.vMin,
                 filename: self.selectedGCodeFile,
+                svgfile: self.selectedSVGFile,
                 diam: self.refdiam(),
                 clear: clearance,
                 risky: self.risky(),
