@@ -1152,10 +1152,10 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     depth = nominal_depth
                     if self.leadin and total_in_step and leadin_check < total_in_step:
                         depth = self.lead_calc("in", nominal_depth, total_in_step - leadin_check, in_inc)
-                        command_list.append(f"(lead in, index:{leadin_check} inc:{in_inc} depth:{depth})")
+                        #command_list.append(f"(lead in, index:{leadin_check} inc:{in_inc:0.1f} depth:{depth:0.2f})")
                     if self.leadout and total_out_step and leadout_check < total_out_step:
                         depth = self.lead_calc("out", nominal_depth, total_out_step - leadout_check, out_inc)
-                        command_list.append(f"(lead out, index:{leadout_check} inc:{out_inc} depth:{depth})")
+                        #command_list.append(f"(lead out, index:{leadout_check} inc:{out_inc:0.1f} depth:{depth:0.2f})")
 
                     coord = self.calc_coords(each)
                     if previous_coord:

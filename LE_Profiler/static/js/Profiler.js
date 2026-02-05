@@ -118,12 +118,13 @@ $(function() {
         self.fetchsvgFiles = function() {
             OctoPrint.files.listForLocation("local/scans", false)
                 .done(function(data) {
-                    var scans = data.children || [];
-                    scans = scans
+                    var files = data.children;
+                    console.log(files);
+                    files = files
                         .filter(f => f.name && f.name.toLowerCase().endsWith(".svg"))
-                        .sort((a, b) => a.name.localeCompare(b.name));
-                    self.scans = scans;
-                    populateFileSelector(scans, "#svgFileSelect", "machinecode");
+                        .sort((a,b) => { return a.name.localeCompare(b.name) });
+                    self.svgfiles = files;
+                    populateFileSelector(files, "#svgFileSelect", "machinecode");
                 })
                 .fail(function() {
                     console.error("Failed to fetch GCode files.");
@@ -558,6 +559,11 @@ $(function() {
                     alert("Step down must be less than or equal to total depth and greater than 0.");
                     return;
                 }
+
+                if (self.selectedSVGFile != null && self.referenceZ === null) {
+                    alert("Reference Diameter position must be set if using an A rotation profile.");
+                    return;
+                } 
             }
 
             if (Number(self.tool_length()) < 10) {
