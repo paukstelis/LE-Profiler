@@ -35,6 +35,8 @@ $(function() {
         self.pd = null;
         self.wrapfiles = null;
         self.scans = null;
+        //experimental features
+        self.exp = ko.observable(false);
 
         //Laser
         self.power = ko.observable(250);
@@ -60,40 +62,37 @@ $(function() {
         self.svgfiles = null;
 
         self.mode = ko.observable("none");
-        
+
+        function toggleSection(targetMode) {
+            $(".mode-section").hide();
+            $(`.${targetMode}`).each(function () {
+                const isExpOnly = $(this).hasClass("exp");
+                if (!isExpOnly || !!self.exp) {
+                    $(this).show();
+                }
+            });
+        }
+
         self.onModeChange = function () {
-            if (self.mode() === "wrap") {
-                $(".laser").hide();
-                $(".flute").hide();
-                $(".facet").hide();
-                $(".wrap").show();
-                self.fetchWrapFiles(); // Fetch GCode files for wrap mode
-            } else if (self.mode() === "laser") {
-                $(".wrap").hide();
-                $(".flute").hide();
-                $(".facet").hide();
-                $(".laser").show();
-            } else if (self.mode() === "flute") {
-                $(".laser").hide();
-                $(".wrap").hide();
-                $(".facet").hide();
-                $(".flute").show();
-            } else if (self.mode() === "facet") {
-                $(".laser").hide();
-                $(".wrap").hide();
-                $(".flute").hide();
-                $(".facet").show();
+            const mode = self.mode();
+            toggleSection(mode);
+            if (mode === "wrap") {
+                self.fetchWrapFiles();
+            } else if (mode === "facet") {
+                self.fetchsvgFiles();
+            } else if (mode === "flute") {
                 self.fetchsvgFiles();
             }
-        }
+        };
 
         // Fetch the list of .txt files from the uploads/scans directory
         self.fetchProfileFiles = function() {
             OctoPrint.files.listForLocation("local/scans", false)
                 .done(function(data) {
-                    var scans = data.children;
-                    console.log(scans);
-                    scans.sort((a,b) => { return a.name.localeCompare(b.name) });
+                    var scans = data.children || [];
+                    scans = scans
+                        .filter(f => f.name && f.name.toLowerCase().endsWith(".txt"))
+                        .sort((a, b) => a.name.localeCompare(b.name));
                     self.scans = scans;
                     populateFileSelector(scans, "#scan_file_select", "machinecode");
                 })
@@ -117,13 +116,14 @@ $(function() {
         };
 
         self.fetchsvgFiles = function() {
-            OctoPrint.files.listForLocation("local/cylshape", false)
+            OctoPrint.files.listForLocation("local/scans", false)
                 .done(function(data) {
-                    var files = data.children;
-                    console.log(files);
-                    files.sort((a,b) => { return a.name.localeCompare(b.name) });
-                    self.svgfiles = files;
-                    populateFileSelector(files, "#svgFileSelect", "machinecode");
+                    var scans = data.children || [];
+                    scans = scans
+                        .filter(f => f.name && f.name.toLowerCase().endsWith(".svg"))
+                        .sort((a, b) => a.name.localeCompare(b.name));
+                    self.scans = scans;
+                    populateFileSelector(scans, "#svgFileSelect", "machinecode");
                 })
                 .fail(function() {
                     console.error("Failed to fetch GCode files.");
@@ -153,10 +153,12 @@ $(function() {
             $(".wrap").hide();
             $(".zscan").hide();
 
+
             self.smoothing = self.settings.smooth_points;
             //burned by this several times now....just force the user to put in the value
             //self.tool_length = self.settings.tool_length;
             self.increment = self.settings.increment;
+            self.exp = self.settings.exp();
 
         };
 
@@ -280,6 +282,22 @@ $(function() {
                                     ay: 20
                                 });
                                 plotProfile(true);
+                            }   else if (self.markerAction() === "refset") {
+                                var offset = getSmartAnnotationOffset(clickedX, clickedZ, self.xValues, self.zValues);
+                                self.annotations = self.annotations.filter(a => !a.text.startsWith('D'));
+                                self.referenceZ = clickedX;
+                                self.annotations.push({
+                                    x: clickedX,
+                                    y: clickedZ,
+                                    xref: 'x',
+                                    yref: 'y',
+                                    text: 'D='+self.refdiam(),
+                                    showarrow: true,
+                                    arrowhead: 2,
+                                    ax: offset.ax,
+                                    ay: offset.ay
+                                });
+                                plotProfile(false);
                             }
                         } else if (self.isXFile) {
                             // X-file mode: Handle X-axis selections

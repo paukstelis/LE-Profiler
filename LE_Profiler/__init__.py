@@ -95,6 +95,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
     def get_settings_defaults(self):
         return dict(
+            exp=False,
             increment=0.25,
             smooth_points=100,
             default_segments=1,
@@ -971,8 +972,9 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         command_list.append(f"(B-angle smoothing points: {self.smooth_points})")
         
         profile_points = self.resample_profile()
+        surface_length = 0.0    
+        svg_angle_arr = None
 
-        
         # Calculate depth passes
         pass_info = divmod(self.depth, self.step_down)
         passes = pass_info[0]
@@ -981,11 +983,44 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             total_passes = int(passes + 1)
         else:
             total_passes = int(passes)
+        
+        #A profile
+        #requires knowing radii at all profile points, which means will need to collect Reference diameter
+        if self.svg_profile_path and not self.diam:
+            #Send error, need diameter
+            data = dict()
+            self.send_le_message(data)
+            return
+        
+        if self.svg_profile_path and profile_points:
+            self._logger.debug("Processing svg path")
+            reference_radius = self.diam/2
+            pp_arr = np.asarray(profile_points, dtype=float)
+            vals = self.spline(pp_arr) 
+            radii_arr = reference_radius + (vals - self.referenceZ)
+
+            surface_progress = np.zeros(len(profile_points), dtype=float)
+            for idx in range(1, len(profile_points)):
+                surface_progress[idx] = surface_progress[idx - 1] + abs(
+                    self.get_arc(profile_points[idx - 1], profile_points[idx])
+                )
+            surface_length = surface_progress[-1]
+            self.load_svg_a_profile(self.svg_profile_path, surface_length)
+            if self.svg_a_offset:
+                offsets_mm = self.svg_a_offset(surface_progress)
+                svg_angle_arr = np.zeros(len(profile_points), dtype=float)
+                for idx, mm in enumerate(offsets_mm):
+                    radius = radii_arr[idx]
+                    svg_angle_arr[idx] = math.degrees(mm / radius) if radius > 0 else 0.0
+                #svg_angle_arr = np.diff(svg_angle_arr, prepend=svg_angle_arr[0])
+            self._logger.debug(svg_angle_arr)
 
         # Calculate A rotation per flute and per move (for helical flutes)
         flute_angle = 360 / self.segments
         seg_rot = self.arotate / (len(profile_points) - 1) if len(profile_points) > 1 else 0
-
+        #seg_rot and a profile are mutally exclusive
+        if self.svg_a_offset and seg_rot:
+            seg_rot = 0.0
         # Lead-in/lead-out calculations
         lead_in_x = lead_out_x = total_in_step = total_out_step = in_inc = out_inc = None
         if self.leadin or self.leadout:
@@ -1130,10 +1165,13 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
                     previous_coord = coord
 
+                    current_a = base_a
+
                     if seg_rot:
                         current_a = base_a + seg_rot * idx
-                    else:
-                        current_a = base_a
+
+                    if svg_angle_arr is not None:
+                        current_a = base_a + (svg_angle_arr[idx])
 
                     if self.do_oval:
                         self._logger.debug(f"Pre-oval depth at {current_a}: {depth}")
@@ -1410,6 +1448,9 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self.leadout = float(data["leadout"])
                 self.adaptive = bool(data["adaptive"])
                 self.feedscale = float(data["feedscale"])
+                self.referenceZ = float(data["refZ"])
+                self.diam = float(data["diam"])
+                self.svg_profile_path = data["svgfile"]["path"]
                 self.generate_flute_job()
                 return
             

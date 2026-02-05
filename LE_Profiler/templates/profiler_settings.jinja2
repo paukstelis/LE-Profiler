@@ -1,22 +1,35 @@
 <form class="form-horizontal">
     <div class="control-group">
+    <div>
+        <h3>Experimental</h3>
+        <label>
+            <input type="checkbox" data-bind="checked: settings.plugins.profiler.exp">  Show any experimental features
+            <i class="icon icon-info-sign" title="Reload pages after changing this option" data-toggle="tooltip"></i>
+        </label>
+    </div>
+    <div>
+        <h3>Defaults</h3>
         <label>
             <input type="number" step="any" class="input-mini" data-bind="value: settings.plugins.profiler.smooth_points"> B-angle smoothing steps
-            <i class="icon icon-info-sign" title="" data-toggle="tooltip"></i>
+            <i class="icon icon-info-sign" title="Default number of B-axis smooothing points" data-toggle="tooltip"></i>
         </label>
         <br>
         <label>
             <input type="number" step="any" class="input-mini" data-bind="value: settings.plugins.profiler.increment"> Fixed axis increments
-            <i class="icon icon-info-sign" title="" data-toggle="tooltip"></i>
+            <i class="icon icon-info-sign" title="Default fixed axis increment value (mm)" data-toggle="tooltip"></i>
         </label>
         <br>
+    </div>
+    <div>
+        <h3>Other</h3>
        <label>
             <input type="checkbox" data-bind="checked: settings.plugins.profiler.use_m3">  Use M3 instead of M4 for laser jobs
-            <i class="icon icon-info-sign" title="" data-toggle="tooltip"></i>
+            <i class="icon icon-info-sign" title="For laser jobs, uses M3 instead M4" data-toggle="tooltip"></i>
         </label>
         <label>
             <input type="checkbox" data-bind="checked: settings.plugins.profiler.pchip">  Use PChip interpolation
-            <i class="icon icon-info-sign" title="" data-toggle="tooltip"></i>
+            <i class="icon icon-info-sign" title="PChip interpolation can be used instead of cubic spline in cases where sharp changes are needed." data-toggle="tooltip"></i>
         </label>
+    </div>
     </div>
 </form>

@@ -29,15 +29,15 @@
                 </label>        
             </div>
 
-            <div class="wrap" id="wrapFileSelectContainer" style="display: none;">
+            <div class="mode-section wrap" id="wrapFileSelectContainer" style="display: none;">
                 <label for="wrapFileSelect">Wrap Gcode:</label>
                 <select id="wrapFileSelect">
                     <option value="">Loading...</option>
                 </select>
             </div>
 
-            <div class="facet wrap">
-                <label title="Establishes the diameter at a selectable point. This enables the diameter to be known at all positions on the curve." data-toggle="tooltip" for="refdiam">
+            <div class="mode-section facet wrap flute ">
+                <label title="Establishes the diameter at a selectable point. This enables the diameter to be known at all positions on the curve. For flutes, only used if an A-axis profile is selected." data-toggle="tooltip" for="refdiam">
                     Diameter at reference (mm):
                     <input id="refdiam" type="number" value="0" step="any" data-bind="value: refdiam">  
                 </label>
@@ -68,56 +68,56 @@
                 </label>
             </div>
                 
-            <div class="laser flute facet">
+            <div class="mode-section laser flute facet">
                 <label title="The linear feed rate" data-toggle="tooltip" for="feed">
                     Nominal Feedrate (mm/min):
                     <input id="feed" type="number" value="1000" step="any" data-bind="value: feed"> 
                 </label>           
             </div>
 
-            <div id="laserPower" class="laser">
+            <div id="laserPower" class="mode-section laser">
                 <label title="The laser power used during cutting." data-toggle="tooltip" for="power">
                     Laser Power:
                     <input id="power" type="number" value="1000" step="any" data-bind="value: power">
                 </label>
             </div>
 
-            <div class="flute facet">
+            <div class="mode-section flute facet">
                 <label title="For fluting this is the total depth and must be non-zero. For facets this is the maximum overall depth-of-cut with zero value indicating no maximum." data-toggle="tooltip" for="depth">
                     Total/Max Depth (mm):
                     <input id="depth" type="number" value="1" step="any" data-bind="value: depth">
                 </label>
             </div>
 
-            <div class="flute facet">
+            <div class="mode-section flute facet">
                 <label title="For fluting this is the depth-of-cut per pass. For facets this is the maximum depth-of-cut per pass." data-toggle="tooltip" for="stepdown">
                     Step Down (mm):
                     <input id="stepdown" type="number" value="1" step="any" data-bind="value: step_down">
                 </label>
             </div>
 
-            <div class="facet">
+            <div class="mode-section facet">
                 <label title="Scale factor for the depth of cut. This reduces/increases the overall cut depth." data-toggle="tooltip" for="depthmod">
                     Depth modifier:
                     <input id="depthmod" type="number" value="1.0" step="any" data-bind="value: depth_mod">
                 </label>
             </div>
 
-            <div class="laser">
+            <div class="mode-section laser">
                 <label title="Do a test pass with weak laser power to verify positioning." data-toggle="tooltip" for="test">
                     Test pass:
                     <input id="test" type="checkbox" checked data-bind="checked: test">
                 </label>
             </div>
 
-            <div class="wrap">
+            <div class="mode-section wrap">
                 <label title="This will project the gcode onto the work piece. With this unchecked, the gcode is wrapped and includes radial fall-off of the width." data-toggle="tooltip" for="ra">
                     Project:
                     <input id="ra" type="checkbox" checked data-bind="checked: radius_adjust">
                 </label>
             </div>
 
-            <div class="facet">
+            <div class="mode-section facet">
                 <label title="This inverts the cut depth to make lobes instead of facets." data-toggle="tooltip" for="facetinvert">
                     Invert depths:
                     <input id="facetinvert" type="checkbox" checked data-bind="checked: facet_invert">
@@ -130,7 +130,7 @@
                 <label>Marker Selection:</label>
                 <select id="markerSelector" data-bind="value: markerAction">
                     <option value="zeroPoint">Set Zero</option>
-                    <option class="wrap facet" value="refset">Diameter Reference</option>
+                    <option class="mode-section wrap facet flute" value="refset">Diameter Reference</option>
                     <option value="Max">Set Max Limit</option>
                     <option value="Min">Set Min Limit</option>
                     <option value="targetPoint">Set Target</option>
@@ -151,42 +151,42 @@
                 
             </div>
 
-            <div class="flute laser facet">
+            <div class="mode-section flute laser facet">
                 <label title="The number of degrees to rotate the A-axis during each segment." data-toggle="tooltip" for="Arot">
                     A-axis rotation:</label>
                     <input id="Arot" type="number" value="1" step="any" data-bind="value: Arot">
                 
             </div>
 
-            <div class="facet flute" id="svgFileSelectContainer" style="display: none;">
+            <div class="mode-section facet flute exp" id="svgFileSelectContainer" style="display: none;">
                 <label for="svgFileSelect">A rotation profile:</label>
                 <select id="svgFileSelect">
                     <option value="">Loading...</option>
                 </select>
             </div>
 
-            <div class="facet">
+            <div class="mode-section facet">
                 <label title="The diameter of the cutter used for clearing. A larger diameter will take fewer passes at the expense of more ridges." data-toggle="tooltip" for="tooldiam">
                     Tool Diameter (mm):</label>
                     <input id="tooldiam" type="number" value="1" step="any" data-bind="value: tool_diam">
                 
             </div>
 
-            <div class="facet">
+            <div class="mode-section facet">
                 <label title="The percent step over at the largest diameter of the piece based on the input tool diameter." data-toggle="tooltip" for="stepover">
                     Step over (%):</label>
                     <input id="stepover" type="number" value="0.5" max="1.0" step="any" data-bind="value: step_over">
                 
             </div>
 
-            <div class="flute">
+            <div class="mode-section flute">
                 <label title="The distance in mm to reach the final depth-of-cut." data-toggle="tooltip" for="leadin">
                     Lead in (mm):</label>
                     <input id="leadin" type="number" value="1" step="any" data-bind="value: leadin">
                 
             </div>
 
-            <div class="flute">
+            <div class="mode-section flute">
                 <label title="The distance in mm retract before the end of the cut." data-toggle="tooltip" for="leadout">
                     Lead out (mm):</label>
                     <input id="leadout" type="number" value="1" step="any" data-bind="value: leadout">
@@ -203,38 +203,38 @@
                         
                     </div>
 
-                    <div class="wrap flute facet laser">
+                    <div class="mode-section wrap flute facet laser">
                         <label for="smoothing">B-angle smoothing (points):</label>
                         <input id="smoothing" type="number" min="2" value="12" step="2" data-bind="value: smoothing">
                         
                     </div>
 
-                    <div class="flute">
+                    <div class="mode-section flute">
                          <label title="For fluting, every pass will start at smallest Z value." for="conventional">Single direction:</label>
                         <input id="conventional" type="checkbox" data-bind="checked: conventional">
                     </div>
                     
-                    <div class="wrap">
+                    <div class="mode-section wrap">
                         <label for="singleB">Use single B-value for each operation:</label>
                         <input id="singleB" type="checkbox" data-bind="checked: singleB">
                         
                     </div>
-                    <div class="flute facet">
+                    <div class="mode-section flute facet">
                         <label title="Scales up feedrate during shallow passes. Up to max scale value." for="adaptive">Use adaptive feed rates:</label>
                         <input id="adaptive" type="checkbox" data-bind="checked: adaptive">
                         
                     </div>
-                    <div class="flute facet">
+                    <div class="mode-sectionflute facet">
                         <label for="fmod1">Adaptive feedrate max scale:</label>
                         <input id="fmod1" type="number" min="1" max="10" step="any" data-bind="value: feedscale">
                     </div>
 
-                    <div class="facet">
+                    <div class="mode-section facet">
                         <label title="Feed for the first pass of inverted facets. Allows deeper overall cuts." for="fpass">First pass feedrate (mm/min):</label>
                         <input id="fpass" type="number" step="any" data-bind="value: fpass">
                     </div>
 
-                    <div class="flute facet wrap">
+                    <div class="mode-section flute facet wrap">
                         <label title="Ignore ovality scan (if present)" for="ignore_oval">Ignore ovality data</label>
                         <input id="ignore_oval" type="checkbox" data-bind="checked: ignore_oval">
                     </div>
