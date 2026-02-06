@@ -57,6 +57,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.adaptive = False
         self.feedscale = 1.0
         self.fpass = 200
+        self.laser_uni = False
         self.writing = False
         self.conventional = False
         self.use_m3 = False
@@ -79,6 +80,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self._logger.info(f"Use m3 is {self.use_m3}")
         self.weak_laser = self._settings.global_get(["plugins", "latheengraver", "weakLaserValue"])
         self.pchip = bool(self._settings.get(["pchip"]))
+        self.laser_uni = bool(self._settings.get(["laser_uni"]))
+
         if self.pchip:
             from scipy.interpolate import PchipInterpolator
             self.splinetype = PchipInterpolator
@@ -100,6 +103,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             smooth_points=100,
             default_segments=1,
             use_m3=False,
+            laser_uni=False,
             )
     
     def get_template_configs(self):
@@ -602,7 +606,13 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         while i <= self.segments:
             command_list.append(f"(Starting segment {i} of {self.segments})")
             command_list.extend(pass_list)
-            pass_list = pass_list[::-1]
+            if not self.laser_uni:
+                pass_list = pass_list[::-1]
+            else:
+                command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
+                command_list.append(f"G0 B{start['B']:0.4f}")
+                command_list.append(f"G0 X{start['X']:0.4f}")
+                command_list.append(f"G0 Z{start['Z']:0.4f}")
             if self.test and i == 1:
                 command_list.append("G4 P2")
                 command_list.append("(test pass)")
@@ -610,9 +620,11 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 command_list.append("G4 P2")
                 command_list.append("M0")
                 command_list.append(f"{fire} S{self.power}")
-                pass_list = pass_list[::-1]
+                if not self.laser_uni:
+                    pass_list = pass_list[::-1]
                 command_list.extend(pass_list)
-                pass_list = pass_list[::-1]
+                if not self.laser_uni:
+                    pass_list = pass_list[::-1]
             #rotate
             command_list.append("G0 A0") #return A to 0 first
             command_list.append(f"G0 A{A_rot:0.3f}")
@@ -1012,7 +1024,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 for idx, mm in enumerate(offsets_mm):
                     radius = radii_arr[idx]
                     svg_angle_arr[idx] = math.degrees(mm / radius) if radius > 0 else 0.0
-                #svg_angle_arr = np.diff(svg_angle_arr, prepend=svg_angle_arr[0])
+                #flip array because flutes always start at smallest radius
+                svg_angle_arr = np.flip(svg_angle_arr)
             self._logger.debug(svg_angle_arr)
 
         # Calculate A rotation per flute and per move (for helical flutes)

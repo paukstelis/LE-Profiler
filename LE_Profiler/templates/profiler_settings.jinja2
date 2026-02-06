@@ -27,6 +27,10 @@
             <i class="icon icon-info-sign" title="For laser jobs, uses M3 instead M4" data-toggle="tooltip"></i>
         </label>
         <label>
+            <input type="checkbox" data-bind="checked: settings.plugins.profiler.laser_uni">  Unidirectional laser traversal
+            <i class="icon icon-info-sign" title="For laser jobs, path traversals will always got from min to max, resetting between passes" data-toggle="tooltip"></i>
+        </label>
+        <label>
             <input type="checkbox" data-bind="checked: settings.plugins.profiler.pchip">  Use PChip interpolation
             <i class="icon icon-info-sign" title="PChip interpolation can be used instead of cubic spline in cases where sharp changes are needed." data-toggle="tooltip"></i>
         </label>
