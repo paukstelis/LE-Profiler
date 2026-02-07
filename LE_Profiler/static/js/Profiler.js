@@ -25,6 +25,7 @@ $(function() {
         self.increment = ko.observable(0.25);
         self.adaptive = ko.observable(0);
         self.feedscale = ko.observable(1.0);
+        self.fpass = ko.observable(200);
         self.ignore_oval = ko.observable(0);
         self.conventional = ko.observable(0);
         self.reversed = false;
@@ -34,6 +35,8 @@ $(function() {
         self.pd = null;
         self.wrapfiles = null;
         self.scans = null;
+        //experimental features
+        self.exp = ko.observable(false);
 
         //Laser
         self.power = ko.observable(250);
@@ -55,41 +58,41 @@ $(function() {
         self.step_over = ko.observable(0.5);
         self.facet_invert = ko.observable(0);
         self.depth_mod = ko.observable(1.0);
+        self.selectedSVGFile = null;
+        self.svgfiles = null;
 
         self.mode = ko.observable("none");
-        
-        self.onModeChange = function () {
-            if (self.mode() === "wrap") {
-                $(".laser").hide();
-                $(".flute").hide();
-                $(".facet").hide();
-                $(".wrap").show();
-                self.fetchWrapFiles(); // Fetch GCode files for wrap mode
-            } else if (self.mode() === "laser") {
-                $(".wrap").hide();
-                $(".flute").hide();
-                $(".facet").hide();
-                $(".laser").show();
-            } else if (self.mode() === "flute") {
-                $(".laser").hide();
-                $(".wrap").hide();
-                $(".facet").hide();
-                $(".flute").show();
-            } else if (self.mode() === "facet") {
-                $(".laser").hide();
-                $(".wrap").hide();
-                $(".flute").hide();
-                $(".facet").show();
-            }
+
+        function toggleSection(targetMode) {
+            $(".mode-section").hide();
+            $(`.${targetMode}`).each(function () {
+                const isExpOnly = $(this).hasClass("exp");
+                if (!isExpOnly || !!self.exp) {
+                    $(this).show();
+                }
+            });
         }
+
+        self.onModeChange = function () {
+            const mode = self.mode();
+            toggleSection(mode);
+            if (mode === "wrap") {
+                self.fetchWrapFiles();
+            } else if (mode === "facet") {
+                self.fetchsvgFiles();
+            } else if (mode === "flute") {
+                self.fetchsvgFiles();
+            }
+        };
 
         // Fetch the list of .txt files from the uploads/scans directory
         self.fetchProfileFiles = function() {
             OctoPrint.files.listForLocation("local/scans", false)
                 .done(function(data) {
-                    var scans = data.children;
-                    console.log(scans);
-                    scans.sort((a,b) => { return a.name.localeCompare(b.name) });
+                    var scans = data.children || [];
+                    scans = scans
+                        .filter(f => f.name && f.name.toLowerCase().endsWith(".txt"))
+                        .sort((a, b) => a.name.localeCompare(b.name));
                     self.scans = scans;
                     populateFileSelector(scans, "#scan_file_select", "machinecode");
                 })
@@ -106,6 +109,22 @@ $(function() {
                     files.sort((a,b) => { return a.name.localeCompare(b.name) });
                     self.wrapfiles = files;
                     populateFileSelector(files, "#wrapFileSelect", "gcode");
+                })
+                .fail(function() {
+                    console.error("Failed to fetch GCode files.");
+                });
+        };
+
+        self.fetchsvgFiles = function() {
+            OctoPrint.files.listForLocation("local/scans", false)
+                .done(function(data) {
+                    var files = data.children;
+                    console.log(files);
+                    files = files
+                        .filter(f => f.name && f.name.toLowerCase().endsWith(".svg"))
+                        .sort((a,b) => { return a.name.localeCompare(b.name) });
+                    self.svgfiles = files;
+                    populateFileSelector(files, "#svgFileSelect", "machinecode");
                 })
                 .fail(function() {
                     console.error("Failed to fetch GCode files.");
@@ -135,10 +154,12 @@ $(function() {
             $(".wrap").hide();
             $(".zscan").hide();
 
+
             self.smoothing = self.settings.smooth_points;
             //burned by this several times now....just force the user to put in the value
             //self.tool_length = self.settings.tool_length;
             self.increment = self.settings.increment;
+            self.exp = self.settings.exp();
 
         };
 
@@ -262,6 +283,22 @@ $(function() {
                                     ay: 20
                                 });
                                 plotProfile(true);
+                            }   else if (self.markerAction() === "refset") {
+                                var offset = getSmartAnnotationOffset(clickedX, clickedZ, self.xValues, self.zValues);
+                                self.annotations = self.annotations.filter(a => !a.text.startsWith('D'));
+                                self.referenceZ = clickedX;
+                                self.annotations.push({
+                                    x: clickedX,
+                                    y: clickedZ,
+                                    xref: 'x',
+                                    yref: 'y',
+                                    text: 'D='+self.refdiam(),
+                                    showarrow: true,
+                                    arrowhead: 2,
+                                    ax: offset.ax,
+                                    ay: offset.ay
+                                });
+                                plotProfile(false);
                             }
                         } else if (self.isXFile) {
                             // X-file mode: Handle X-axis selections
@@ -349,6 +386,13 @@ $(function() {
             var bgs_width = self.wrapfiles[theindex]["bgs_width"];
             self.selectedGCodeFile = self.wrapfiles[theindex];
             self.width = bgs_width;
+        });
+
+        $("#svgFileSelect").on("change", function () {
+            var filePath = $("#svgFileSelect option:selected").attr("download");
+            if (!filePath) return;
+            var theindex = $("#svgFileSelect option:selected").attr("index");
+            self.selectedSVGFile = self.svgfiles[theindex];
         });
 
         // When a file is selected, load and plot the profile
@@ -515,6 +559,11 @@ $(function() {
                     alert("Step down must be less than or equal to total depth and greater than 0.");
                     return;
                 }
+
+                if (self.selectedSVGFile != null && self.referenceZ === null) {
+                    alert("Reference Diameter position must be set if using an A rotation profile.");
+                    return;
+                } 
             }
 
             if (Number(self.tool_length()) < 10) {
@@ -544,6 +593,7 @@ $(function() {
                 vMax: self.vMax,
                 vMin: self.vMin,
                 filename: self.selectedGCodeFile,
+                svgfile: self.selectedSVGFile,
                 diam: self.refdiam(),
                 clear: clearance,
                 risky: self.risky(),
