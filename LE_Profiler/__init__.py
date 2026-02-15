@@ -788,6 +788,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             current_a = facet_start_a
             a_measure = current_a
             step_start = facet_start_a
+            
             for a_step in range(num_a_steps):
                 plunge = True
                 section_done = False
@@ -1110,9 +1111,13 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             # Move to start position for this flute
             start = self.calc_coords(profile_points[0])
             trans_x, trans_z = self.cut_depth_value(start, 5)
+            a_move = None
+            if svg_angle_arr:
+                a_move = base_a + svg_angle_arr[0]
             b_move  = (f"G0 B{start['B']:0.4f} A{base_a:.4f}")
             move_1 = (f"G0 X{trans_x:0.4f}")
             move_2 = (f"G0 Z{trans_z:0.4f}")
+
             if self.axis == "X":
                 command_list.append(b_move)
                 command_list.append(move_1)
@@ -1121,6 +1126,9 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 command_list.append(b_move)
                 command_list.append(move_2)
                 command_list.append(move_1)
+            
+            if a_move:
+                command_list.append(f"G0 A{a_move}")
 
             for current_pass in range(1, total_passes + 1):
                 #NOTE, using negative depths here
@@ -1436,7 +1444,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self.plot_data = sorted(self.plot_data, key=lambda x: x["x"])
             if self.axis == "Z":
                 self.plot_data = sorted(self.plot_data, key=lambda x: x["z"])
-                #self._logger.info(self.plot_data)
+                self._logger.info(self.plot_data)
             self.create_spline()
 
             if self.do_oval:
@@ -1461,9 +1469,11 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self.leadout = float(data["leadout"])
                 self.adaptive = bool(data["adaptive"])
                 self.feedscale = float(data["feedscale"])
-                self.referenceZ = float(data["refZ"])
+                if data["refZ"] is not None:
+                    self.referenceZ = float(data["refZ"])
                 self.diam = float(data["diam"])
-                self.svg_profile_path = data["svgfile"]["path"]
+                if data["svgfile"] is not None:
+                    self.svg_profile_path = data["svgfile"]["path"]
                 self.generate_flute_job()
                 return
             
@@ -1488,7 +1498,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self.depth = float(data["depth"])
                 self.adaptive = bool(data["adaptive"])
                 self.feedscale = float(data["feedscale"])
-                self.svg_profile_path = data["svgfile"]["path"]
+                if data["svgfile"] is not None:
+                    self.svg_profile_path = data["svgfile"]["path"]
 
                 if self.segments < 3:
                     self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
