@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "LE-Profiler"
-version = "0.1.22"
+version = "0.1.23"
 description = "Follow a profile"
 authors = [
     { name = "Transpiration Turning", email = "transpirationturning@gmail.com" },
