@@ -1001,7 +1001,12 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         #requires knowing radii at all profile points, which means will need to collect Reference diameter
         if self.svg_profile_path and not self.diam:
             #Send error, need diameter
-            data = dict()
+            data = dict(type="simple_notify",
+                        title="Diameter Error",
+                        text="Usage of SVG profile requires the reference diameter to be non-zero.",
+                        hide=True,
+                        delay=10000,
+                        notify_type="error")
             self.send_le_message(data)
             return
         
@@ -1474,6 +1479,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self.diam = float(data["diam"])
                 if data["svgfile"] is not None:
                     self.svg_profile_path = data["svgfile"]["path"]
+                else:
+                    self.svg_profile_path = None
                 self.generate_flute_job()
                 return
             
@@ -1500,6 +1507,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self.feedscale = float(data["feedscale"])
                 if data["svgfile"] is not None:
                     self.svg_profile_path = data["svgfile"]["path"]
+                else:
+                    self.svg_profile_path = None
 
                 if self.segments < 3:
                     self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
