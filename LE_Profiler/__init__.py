@@ -674,19 +674,21 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         # PRECOMPUTE: spline values and radii for all profile points (vectorized)
         pp_arr = np.asarray(profile_points, dtype=float)
         z_vals = self.spline(pp_arr)  # vectorized CubicSpline evaluation
+        self._logger.debug(f"z_vals: {z_vals}")
         radii_arr = reference_radius + (z_vals - self.referenceZ)
-        self._logger.debug(f"Radii_arr: {radii_arr}")
+        self._logger.debug(f"Radii_arr: {radii_arr}, referenceZ: {self.referenceZ}")
         max_radius = float(np.max(radii_arr))
         command_list.append(f"(Max radius: {max_radius})")
+        
 
         # Max Z and scaling
         max_z = max_radius * (1 - math.cos(math.pi / self.segments))
-        command_list.append(f"(Max Z: {max_z:0.2f})")
+        command_list.append(f"(Max depth: {max_z:0.2f})")
         max_z = max_z * self.depth_mod
-        command_list.append(f"(Max Z with scaling: {max_z:0.2f})")
+        command_list.append(f"(Max depth with scaling: {max_z:0.2f})")
         if self.depth and max_z > self.depth:
             max_z = self.depth
-            command_list.append(f"(Max Z limited to {self.depth:0.2f})")
+            command_list.append(f"(Max depth limited to {self.depth:0.2f})")
         pass_info = divmod(max_z, self.step_down)
         passes = pass_info[0]
         last_pass_depth = pass_info[1]
@@ -782,8 +784,14 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             command_list.append(f"(Starting facet {j+1} of {self.segments})")
             command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
             command_list.append(f"G0 B{start['B']:0.4f}")
-            command_list.append(f"G0 X{(baseX[0] + 5 * sinB[0]):0.4f}")
-            command_list.append(f"G0 Z{(baseZ[0] + 5 * cosB[0]):0.4f}")
+            move_1 = f"G0 X{(baseX[0] + 5 * sinB[0]):0.4f}"
+            move_2 = f"G0 Z{(baseZ[0] + 5 * cosB[0]):0.4f}"
+            if self.axis == "X":
+                command_list.append(move_1)
+                command_list.append(move_2)
+            else:
+                command_list.append(move_2)
+                command_list.append(move_1)
 
             current_a = facet_start_a
             a_measure = current_a
@@ -1001,7 +1009,12 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         #requires knowing radii at all profile points, which means will need to collect Reference diameter
         if self.svg_profile_path and not self.diam:
             #Send error, need diameter
-            data = dict()
+            data = dict(type="simple_notify",
+                        title="Diameter Error",
+                        text="Usage of SVG profile requires the reference diameter to be non-zero.",
+                        hide=True,
+                        delay=10000,
+                        notify_type="error")
             self.send_le_message(data)
             return
         
@@ -1474,6 +1487,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self.diam = float(data["diam"])
                 if data["svgfile"] is not None:
                     self.svg_profile_path = data["svgfile"]["path"]
+                else:
+                    self.svg_profile_path = None
                 self.generate_flute_job()
                 return
             
@@ -1500,6 +1515,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self.feedscale = float(data["feedscale"])
                 if data["svgfile"] is not None:
                     self.svg_profile_path = data["svgfile"]["path"]
+                else:
+                    self.svg_profile_path = None
 
                 if self.segments < 3:
                     self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
@@ -1509,14 +1526,14 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                                                     delay=10000,
                                                                     notify_type="error"))
                     return
-                if self.axis != 'X':
+                '''if self.axis != 'X':
                     self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
                                                                     title="Facet Error",
                                                                     text="Facets are currently only compatible with X-axis scans.",
                                                                     hide=True,
                                                                     delay=10000,
                                                                     notify_type="error"))
-                    return
+                    return'''
                 self.generate_facet_job()
                 return
             
