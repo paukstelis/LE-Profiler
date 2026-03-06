@@ -1390,12 +1390,12 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self._plugin_manager.send_plugin_message('latheengraver',  dict(type='filerefresh'))
 
     def send_le_message(self, data):
-        
+        hide = data.get("hide", True)
         payload = dict(
             type="simple_notify",
             title=data["title"],
             text=data["text"],
-            hide=True,
+            hide=hide,
             delay=data["delay"],
             notify_type=data["type"]
         )
