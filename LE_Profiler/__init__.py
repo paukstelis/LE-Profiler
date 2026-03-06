@@ -1125,7 +1125,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             start = self.calc_coords(profile_points[0])
             trans_x, trans_z = self.cut_depth_value(start, 5)
             a_move = None
-            if svg_angle_arr:
+            if len(svg_angle_arr):
                 a_move = base_a + svg_angle_arr[0]
             b_move  = (f"G0 B{start['B']:0.4f} A{base_a:.4f}")
             move_1 = (f"G0 X{trans_x:0.4f}")
