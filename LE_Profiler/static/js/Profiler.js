@@ -681,6 +681,7 @@ $(function() {
             if (current === "#tab_plugin_profiler") {
                 self.fetchProfileFiles();
                 self.fetchWrapFiles();
+                self.fetchsvgFiles();
             }
         };
     }
