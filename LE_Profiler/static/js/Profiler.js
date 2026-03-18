@@ -390,7 +390,10 @@ $(function() {
 
         $("#svgFileSelect").on("change", function () {
             var filePath = $("#svgFileSelect option:selected").attr("download");
-            if (!filePath) return;
+            if (!filePath) {
+                self.selectedSVGFile = null;
+                return;
+            }
             var theindex = $("#svgFileSelect option:selected").attr("index");
             self.selectedSVGFile = self.svgfiles[theindex];
         });
