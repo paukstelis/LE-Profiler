@@ -171,12 +171,13 @@ $(function() {
         });
 
         self.do_distance = function() {
-            if (!self.isZFile && self.mode() === "wrap" && self.vMax && self.vMin)  {
+            if (!self.isZFile && self.mode() === "wrap" && self.vMax != null && self.vMin != null)  {
                 self.pd = self.get_pd();
                 return true;
             }
         }
-        // Function to plot the profile using Plotly
+        
+                
         function plotProfile(isZFile) {
 
             var trace = {
