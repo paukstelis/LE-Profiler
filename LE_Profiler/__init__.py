@@ -263,15 +263,21 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         return self.a_spline.ev(a_wrapped, x)
     
     def calc_coords(self, coord):
-       
         closest = min(self.ind_v, key=lambda x: abs(x - coord))
         closest_idx = self.ind_v.index(closest)
-        half_window = self.smooth_points // 2
-        start_idx = max(0, closest_idx - half_window)
-        end_idx = min(len(self.ind_v), closest_idx + half_window + 1)
+
+        # Distance from nearest boundary (in indices)
+        dist_from_boundary = min(closest_idx, len(self.ind_v) - 1 - closest_idx)
+        # Scale window: 0 boundary → half_window=0 (1 point), grows to self.smooth_points//2
+        max_half = self.smooth_points // 2
+        # each step away from boundary adds 1 to half_window, capped at max_half
+        half_window = min(dist_from_boundary, max_half)
+
+        start_idx = closest_idx - half_window
+        end_idx = closest_idx + half_window + 1
         near = self.ind_v[start_idx:end_idx]
         slopes = [self.spline.derivative()(x) for x in near]
-        #include the calculated value in the average
+        # include the calculated value in the average
         slopes.append(self.spline.derivative()(coord))
         slope = sum(slopes) / len(slopes)
         z_value = self.spline(coord)
@@ -1546,6 +1552,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             self._plugin_manager.send_plugin_message('Profiler', data)
             
         if command == "go_to_position":
+            #self.vMax = float(data["vMax"])
+            #self.vMin = float(data["vMin"])
             self.plot_data = data["plot_data"]
             self.target = float(data["target"])
             self.clearance = float(data["clear"])

@@ -454,7 +454,13 @@ $(function() {
         self.getPointsInRange = function() {
             var pointsInRange = [];
             for (var i = 0; i < self.xValues.length; i++) {
-                pointsInRange.push({ x: parseFloat(self.xValues[i]).toFixed(3), z: parseFloat(self.zValues[i]).toFixed(3) });
+                var x = parseFloat(self.xValues[i]);
+                var z = parseFloat(self.zValues[i]);
+                // For Z files, range is along Z axis; for X files, range is along X axis
+                var rangeVal = self.isZFile ? z : x;
+                if (self.vMin != null && rangeVal < self.vMin) continue;
+                if (self.vMax != null && rangeVal > self.vMax) continue;
+                pointsInRange.push({ x: x.toFixed(3), z: z.toFixed(3) });
             }
             return pointsInRange;
         };

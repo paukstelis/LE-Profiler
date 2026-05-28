@@ -1155,12 +1155,18 @@ class G_Code_Rip:
         self.axis = "X"
         closest = min(self.x_coords, key=lambda x: abs(x - coord[0]))
         closest_idx = self.x_coords.index(closest)
-        half_window = int(self.smooth_points) // 2
-        start_idx = max(0, closest_idx - half_window)
-        end_idx = min(len(self.x_coords), closest_idx + half_window + 1)
+
+        # Distance from nearest boundary (in indices)
+        dist_from_boundary = min(closest_idx, len(self.x_coords) - 1 - closest_idx)
+        # Scale window: 0 at boundary → half_window=0 (1 point), grows to smooth_points//2
+        max_half = int(self.smooth_points) // 2
+        half_window = min(dist_from_boundary, max_half)
+
+        start_idx = closest_idx - half_window
+        end_idx = closest_idx + half_window + 1
         near = self.x_coords[start_idx:end_idx]
         slopes = [self.spline.derivative()(x) for x in near]
-        #include the calculated value in the average
+        # include the calculated value in the average
         slopes.append(self.spline.derivative()(coord[0]))
         slope = sum(slopes) / len(slopes)
         z_value = self.spline(coord[0])
