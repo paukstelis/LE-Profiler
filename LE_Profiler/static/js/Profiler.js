@@ -171,12 +171,13 @@ $(function() {
         });
 
         self.do_distance = function() {
-            if (!self.isZFile && self.mode() === "wrap" && self.vMax && self.vMin)  {
+            if (!self.isZFile && self.mode() === "wrap" && self.vMax != null && self.vMin != null)  {
                 self.pd = self.get_pd();
                 return true;
             }
         }
-        // Function to plot the profile using Plotly
+        
+                
         function plotProfile(isZFile) {
 
             var trace = {
@@ -453,7 +454,13 @@ $(function() {
         self.getPointsInRange = function() {
             var pointsInRange = [];
             for (var i = 0; i < self.xValues.length; i++) {
-                pointsInRange.push({ x: parseFloat(self.xValues[i]).toFixed(3), z: parseFloat(self.zValues[i]).toFixed(3) });
+                var x = parseFloat(self.xValues[i]);
+                var z = parseFloat(self.zValues[i]);
+                // For Z files, range is along Z axis; for X files, range is along X axis
+                var rangeVal = self.isZFile ? z : x;
+                if (self.vMin != null && rangeVal < self.vMin) continue;
+                if (self.vMax != null && rangeVal > self.vMax) continue;
+                pointsInRange.push({ x: x.toFixed(3), z: z.toFixed(3) });
             }
             return pointsInRange;
         };

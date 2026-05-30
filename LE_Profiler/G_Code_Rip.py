@@ -1153,17 +1153,27 @@ class G_Code_Rip:
     def coordinate_modification(self,coord):
         import math
         self.axis = "X"
-        closest = min(self.x_coords, key=lambda x: abs(x - coord[0]))
-        closest_idx = self.x_coords.index(closest)
-        half_window = int(self.smooth_points) // 2
-        start_idx = max(0, closest_idx - half_window)
-        end_idx = min(len(self.x_coords), closest_idx + half_window + 1)
-        near = self.x_coords[start_idx:end_idx]
-        slopes = [self.spline.derivative()(x) for x in near]
-        #include the calculated value in the average
-        slopes.append(self.spline.derivative()(coord[0]))
-        slope = sum(slopes) / len(slopes)
-        z_value = self.spline(coord[0])
+        x = coord[0]
+
+        if any(isinstance(c, complex) for c in coord):
+            return [coord[0], 0, coord[2], 0, self.radius]
+        
+        # Fast interpolated lookup — works for any x, not just exact x_coords entries
+        if hasattr(self, '_interp_z') and hasattr(self, '_interp_slope'):
+            z_value = float(self._interp_z(x))
+            slope   = float(self._interp_slope(x))
+        else:
+            # fallback: direct spline evaluation with boundary-aware smoothing
+            closest     = min(self.x_coords, key=lambda v: abs(v - x))
+            closest_idx = self.x_coords.index(closest)
+            dist        = min(closest_idx, len(self.x_coords) - 1 - closest_idx)
+            hw          = min(dist, int(self.smooth_points) // 2)
+            near        = self.x_coords[closest_idx - hw : closest_idx + hw + 1]
+            slopes      = [self.spline.derivative()(v) for v in near]
+            slopes.append(self.spline.derivative()(x))
+            slope   = sum(slopes) / len(slopes)
+            z_value = float(self.spline(x))
+
         a_value = 0
         #normal angle calculation
         if self.axis == "X":
@@ -1208,7 +1218,8 @@ class G_Code_Rip:
             return [x_center,a_value,z_center-self.tool_length,b_angle,radius_at_z]
                      
     def profile_conform(self,code2conform,spline,x_coords,minB,maxB,tool,radius,radius_adjust,referenceZ,singleB,smooth_points,do_oval,plugin=None):
-
+        import numpy as np
+        from scipy.interpolate import interp1d
         self.spline = spline
         self.x_coords = x_coords
         self.min_B = minB
@@ -1222,6 +1233,26 @@ class G_Code_Rip:
         self.smooth_points = smooth_points
         self.do_oval = do_oval
         self.plugin = plugin
+
+        # Precompute Z positions from X coords
+        x_arr = np.asarray(x_coords, dtype=float)
+        z_arr = spline(x_arr)
+        dz_arr = spline.derivative()(x_arr)
+        max_half = int(smooth_points) // 2
+
+        smoothed_slopes = np.empty(len(x_coords), dtype=float)
+        for ci in range(len(x_coords)):
+            dist = min(ci, len(x_coords) - 1 - ci)
+            hw = min(dist, max_half)
+            start = ci - hw
+            end = ci + hw + 1
+            window = dz_arr[start:end]
+            smoothed_slopes[ci] = (window.sum() + dz_arr[ci]) / (len(window) + 1)
+
+        # Build interpolators so coordinate_modification can look up any x value
+        fill = (smoothed_slopes[0], smoothed_slopes[-1])
+        self._interp_z     = interp1d(x_arr, z_arr,           kind="linear", bounds_error=False, fill_value=(z_arr[0],     z_arr[-1]))
+        self._interp_slope = interp1d(x_arr, smoothed_slopes, kind="linear", bounds_error=False, fill_value=fill)
 
         #limitation is that we don't know A values in this method
 
