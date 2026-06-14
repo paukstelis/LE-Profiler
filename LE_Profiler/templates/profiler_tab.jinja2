@@ -173,8 +173,8 @@
             </div>
 
             <div class="mode-section facet">
-                <label title="The percent step over at the largest diameter of the piece based on the input tool diameter." data-toggle="tooltip" for="stepover">
-                    Step over (%):</label>
+                <label title="The fractional step over at the largest diameter of the piece based on the input tool diameter." data-toggle="tooltip" for="stepover">
+                    Step over (frac.):</label>
                     <input id="stepover" type="number" value="0.5" max="1.0" step="any" data-bind="value: step_over">
                 
             </div>
@@ -249,5 +249,6 @@
         <button id="write_gcode_button" class="btn btn-primary" data-bind="click: writeGCode">Write Job</button>
         <button id="target_button" class="btn btn-primary" data-bind="click: function() {gotoposition(0)}">Go to Target</button>
         <button id="b_button" class="btn btn-primary" data-bind="click: function() {gotoposition(1)}">B at Target</button>
+        <button id="b_button" class="btn btn-primary" data-bind="visible: laser_mode(), enable: laser_mode(), click: function() {}">Weak Laser</button>
     </div>
 </div>

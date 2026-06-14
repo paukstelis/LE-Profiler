@@ -22,6 +22,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
     octoprint.plugin.AssetPlugin,
     octoprint.plugin.StartupPlugin,
     octoprint.plugin.SimpleApiPlugin,
+    octoprint.plugin.EventHandlerPlugin,
     octoprint.plugin.TemplatePlugin,
 
 ):
@@ -64,6 +65,10 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.feed_correct = 2
         self.use_pchip = False
         self.splinetype = None
+        self.retract = 10
+        #add in events to detect laser mode
+        self.state = None
+        self.laser_mode = False
 
         self.svg_profile_path = None
         self.svg_a_offset = None
@@ -81,6 +86,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.weak_laser = self._settings.global_get(["plugins", "latheengraver", "weakLaserValue"])
         self.pchip = bool(self._settings.get(["pchip"]))
         self.laser_uni = bool(self._settings.get(["laser_uni"]))
+        self.retract = float(self._settings.get(["retract"]))
 
         if self.pchip:
             from scipy.interpolate import PchipInterpolator
@@ -100,10 +106,11 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         return dict(
             exp=False,
             increment=0.25,
-            smooth_points=100,
+            smooth_points=36,
             default_segments=1,
             use_m3=False,
             laser_uni=False,
+            retract=10.0,
             )
     
     def get_template_configs(self):
@@ -123,6 +130,19 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             "css": ["css/Profiler.css"],
         }
     
+    def on_event(self, event, payload):
+        if event == "plugin_latheengraver_send_position":
+            self.get_position(event, payload)
+
+    def get_position(self, event, payload):
+        self.state = payload["state"]
+        laser_mode = bool(payload["laser"])
+        if laser_mode != self.laser_mode:
+            self._logger.info(f"laser_mode is {laser_mode} and self.laser_mode is {self.laser_mode}")
+            self._logger.info("Laser mode changed")
+            self._plugin_manager.send_plugin_message("Profiler", dict(laser=laser_mode))
+            self.laser_mode = laser_mode
+
     def _parse_g0(self, line: str):
         if not line.lstrip().upper().startswith(("G0", "G00")):
             return None, None, None
@@ -557,7 +577,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         command_list.append("G90")
         command_list.append("G94")
         #command_list.append(f"F{self.feed}")
-        command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
+        command_list.append(f"G0 {safe}{sign}{self.clearance+self.retract:0.3f}")
         move_1 = f"G0 X{start['X']:0.4f}"
         move_2 = f"G0 Z{start['Z']:0.4f}"
         b_move = f"G0 B{start['B']:0.4f}"
@@ -615,7 +635,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             if not self.laser_uni:
                 pass_list = pass_list[::-1]
             else:
-                command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
+                command_list.append(f"G0 {safe}{sign}{self.clearance+self.retract:0.3f}")
                 command_list.append(f"G0 B{start['B']:0.4f}")
                 command_list.append(f"G0 X{start['X']:0.4f}")
                 command_list.append(f"G0 Z{start['Z']:0.4f}")
@@ -788,7 +808,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             #facet_start_a = (facet_angle * j) + offset_deg
             facet_start_a = (facet_angle * j)
             command_list.append(f"(Starting facet {j+1} of {self.segments})")
-            command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
+            command_list.append(f"G0 {safe}{sign}{self.clearance+self.retract:0.3f}")
             command_list.append(f"G0 B{start['B']:0.4f}")
             move_1 = f"G0 X{(baseX[0] + 5 * sinB[0]):0.4f}"
             move_2 = f"G0 Z{(baseZ[0] + 5 * cosB[0]):0.4f}"
@@ -1126,7 +1146,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             previous_depth = 0
             base_a = flute * flute_angle
             command_list.append(f"(Starting flute {flute+1} of {self.segments})")
-            command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
+            command_list.append(f"G0 {safe}{sign}{self.clearance+self.retract:0.3f}")
             # Move to start position for this flute
             start = self.calc_coords(profile_points[0])
             trans_x, trans_z = self.cut_depth_value(start, 5)
@@ -1241,7 +1261,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 else:
                     if not lastcut:
                         #move back to start
-                        command_list.append(f"G0 {safe}{sign}{self.clearance+10:0.3f}")
+                        command_list.append(f"G0 {safe}{sign}{self.clearance+self.retract:0.3f}")
                         if self.axis == "X":
                             command_list.append(b_move)
                             command_list.append(move_1)
@@ -1358,7 +1378,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         gcode.append(f"(Ref. Diam: {self.diam}, Projection: {self.radius_adjust}, G-code width: {self.width})")
         gcode.append(f"(Profile distance: {profile_dist:0.2f}, X-scale factor: {xtoscale}, A-scale factor: {sf})")
         gcode.append("(Safe moves added)")
-        gcode.extend([f"G90 G21",f"G0 {safe}{sign}{10+self.clearance:0.4f}",f"G0 X{first_x:0.2f}"])
+        gcode.extend([f"G90 G21",f"G0 {safe}{sign}{self.retract+self.clearance:0.4f}",f"G0 X{first_x:0.2f}"])
         a_offset = 0
         first_move = False
         for j in range(0, self.segments):
@@ -1577,7 +1597,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
             #self._logger.info(self.x_coords)
             #Move to safe position
-            gcode = ["G90","G21","G94",f"G0 {safe}{sign}{10+self.clearance:0.4f}"]
+            gcode = ["G90","G21","G94",f"G0 {safe}{sign}{self.retract+self.clearance:0.4f}"]
             coord = self.calc_coords(self.target)
             if getB:
                 self._logger.info(f"Calculated B: {coord['B']}")
