@@ -39,6 +39,7 @@ $(function() {
         self.exp = ko.observable(false);
 
         //Laser
+        self.laser_mode = ko.observable(false);
         self.power = ko.observable(250);
         self.feed = ko.observable(200);
         self.test = ko.observable(0);
@@ -466,6 +467,13 @@ $(function() {
         };
 
         self.onDataUpdaterPluginMessage = function(plugin, data) {
+
+            if (plugin == 'Profiler' && data.laser === false || data.laser === true ) {
+                //console.log(data);
+                self.laser_mode(data.laser);
+                //console.log("Laser mode set");
+            }
+
             if (plugin == 'Profiler' && data.type == 'graph' && data.axis == 'X') {
                 self.xValues = data.probe.map(point => point[0]);
                 self.zValues = data.probe.map(point => point[1]);
