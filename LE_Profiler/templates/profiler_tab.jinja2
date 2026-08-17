@@ -165,8 +165,8 @@
                 </select>
             </div>
 
-            <div class="mode-section facet">
-                <label title="The diameter of the cutter used for clearing. A larger diameter will take fewer passes at the expense of more ridges." data-toggle="tooltip" for="tooldiam">
+            <div class="mode-section facet flute">
+                <label title="The diameter of the cutter used" data-toggle="tooltip" for="tooldiam">
                     Tool Diameter (mm):</label>
                     <input id="tooldiam" type="number" value="1" step="any" data-bind="value: tool_diam">
                 
@@ -176,6 +176,13 @@
                 <label title="The fractional step over at the largest diameter of the piece based on the input tool diameter." data-toggle="tooltip" for="stepover">
                     Step over (frac.):</label>
                     <input id="stepover" type="number" value="0.5" max="1.0" step="any" data-bind="value: step_over">
+                
+            </div>
+
+            <div class="mode-section flute">
+                <label title="The minimum acceptable distance betwen two flutes at the smallest diameter" data-toggle="tooltip" for="flute_gap">
+                    Minimum flute gap (mm):</label>
+                    <input id="flute_gap" type="number" value="1" step="any" data-bind="value: flute_gap">
                 
             </div>
 
@@ -224,7 +231,7 @@
                         <input id="adaptive" type="checkbox" data-bind="checked: adaptive">
                         
                     </div>
-                    <div class="mode-sectionflute facet">
+                    <div class="mode-section flute facet">
                         <label for="fmod1">Adaptive feedrate max scale:</label>
                         <input id="fmod1" type="number" min="1" max="10" step="any" data-bind="value: feedscale">
                     </div>
@@ -232,6 +239,11 @@
                     <div class="mode-section facet">
                         <label title="Feed for the first pass of inverted facets. Allows deeper overall cuts." for="fpass">First pass feedrate (mm/min):</label>
                         <input id="fpass" type="number" step="any" data-bind="value: fpass">
+                    </div>
+
+                    <div class="mode-section flute facet">
+                        <label title="Where the Z will start. Negative values will initially cut deeper, positive values will be more shallow" for="extra_depth">Z start depth:</label>
+                        <input id="extra_depth" type="number" min="-5" max="10" step="any" data-bind="value: extra_depth">
                     </div>
 
                     <div class="mode-section flute facet wrap">

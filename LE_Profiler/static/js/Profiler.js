@@ -62,6 +62,8 @@ $(function() {
         self.selectedSVGFile = null;
         self.svgfiles = null;
 
+        self.extra_depth = ko.observable(0.0);
+
         self.mode = ko.observable("none");
 
         function toggleSection(targetMode) {
@@ -560,7 +562,7 @@ $(function() {
                  return;
             }
 
-            if (self.mode() == "facet" || self.mode() == "wrap") {
+            if (self.mode() == "facet" || self.mode() == "wrap" || self.mode() == "flute") {
 
                 if (self.referenceZ === null || Number(self.diam) < 1) {
                     alert("Reference Diameter must be set.");
@@ -577,11 +579,6 @@ $(function() {
                     alert("Step down must be less than or equal to total depth and greater than 0.");
                     return;
                 }
-
-                if (self.selectedSVGFile != null && self.referenceZ === null) {
-                    alert("Reference Diameter position must be set if using an A rotation profile.");
-                    return;
-                } 
             }
 
             if (Number(self.tool_length()) < 10) {
@@ -636,6 +633,8 @@ $(function() {
                 feedscale: self.feedscale(),
                 ignore_oval: self.ignore_oval(),
                 conventional: self.conventional(),
+                extra_depth: self.extra_depth(),
+                flute_gap: self.flute_gap(),
             };
     
             OctoPrint.simpleApiCommand("profiler", "write_job", data)

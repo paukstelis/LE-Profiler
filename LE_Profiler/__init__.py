@@ -70,6 +70,9 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.state = None
         self.laser_mode = False
 
+        self.flute_gap = 0.0
+        self.extra_depth = 0.0
+
         self.svg_profile_path = None
         self.svg_a_offset = None
         #self.watched_path = self._settings.global_get_basefolder("watched")
@@ -536,6 +539,27 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 profile_points.append(domain_max)
         return profile_points
     
+    def min_helix_pitch(self,D,d,N,gap=0.0, L=0.0):
+        """
+        Calculate minimum pitch to maintain desired gap between helical cuts.
+        D: cylinder diameter (mm),this should be SMALLEST diamete
+        d: cutter diameter (mm)
+        N: number of evenly-spaced start positions, self.segments
+        gap: desired gap between cut edges (mm), default 0 (just touching), self.flute_gap
+        Returns minimum pitch P (mm) or None if geometry is impossible
+        """
+        if not gap:
+            gap = d
+        separation = d + gap  # center-to-center spacing needed
+        C = math.pi * D
+        if separation * N >= C:
+            print(f"Impossible geometry: {N} starts × {separation}mm >= circumference {C:.2f}mm")
+            return None
+        P = (separation * N * C) / math.sqrt(C**2 - (separation * N)**2)
+        if L:
+            print(f"{L/P} or {360*L/P} degrees max")
+        return P
+    
     def generate_laser_job(self):
         data = dict(title="Writing Gcode...", text="Laser job is writing.", delay=60000, type="info")
         self.send_le_message(data)
@@ -684,6 +708,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         command_list.append(f"(Fixed axis increment: {self.new_increment})")
         command_list.append(f"(B-angle smoothing points: {self.smooth_points})")
         command_list.append(f"(Ovality compensation: {self.do_oval})")
+        command_list.append(f"(Z start depth: {self.extra_depth})")
         data = dict(title="Writing Gcode...", text="Facet job is writing.", delay=600000, type="info")
         self.send_le_message(data)
         
@@ -918,6 +943,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                             if plunge:
                                 feed = self.feed / 2.0
 
+                            #first pass feed rate scaling for inverted
                             if j == 0 and a_step == 0 and self.invert_facet:
                                 if previous_coord:
                                     feed = self.calc_feedrate(self.fpass, previous_coord, {"X": baseX[idx], "Z": baseZ[idx], "B": B_deg[idx]})
@@ -939,7 +965,12 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                 # facet uses negative depth direction; subtract ovality
                                 oval_mod = -self.ovality_mod(profile_points[idx], a_move)
                                 z_mod = z_mod + oval_mod
-                                
+
+                            if self.extra_depth:
+                                #invert sign in this case
+                                ed = -self.extra_depth
+                                z_mod = z_mod + ed 
+
                             # tip position at depth (-z_mod) using cached sin/cos
                             trans_x = baseX[idx] + (-z_mod) * sinB[idx]
                             trans_z = baseZ[idx] + (-z_mod) * cosB[idx]
@@ -1071,6 +1102,15 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         # Calculate A rotation per flute and per move (for helical flutes)
         flute_angle = 360 / self.segments
         seg_rot = self.arotate / (len(profile_points) - 1) if len(profile_points) > 1 else 0
+
+        #gap check    
+        min_diam = np.min(radii_arr)*2
+        gap_ok = self.min_helix_pitch(min_diam,self.cutter_diam,self.segments,self.flute_gap)
+        if not gap_ok:
+            #problem with pitch
+            #send a message and get out of there
+            return
+
         #seg_rot and a profile are mutally exclusive
         if self.svg_a_offset and seg_rot:
             seg_rot = 0.0
@@ -1248,7 +1288,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                             )
                             self._logger.debug(f"feed adjust from {feed} to {feed*scale}")
                             feed = feed * scale
-
+                    if self.extra_depth:
+                        depth = depth + self.extra_depth
                     trans_x, trans_z = self.cut_depth_value(coord, depth)
                     command_list.append(
                         f"G93 G1 X{trans_x:.3f} Z{trans_z:.3f} A{current_a:.3f} B{coord['B']:.3f} F{feed:.1f}"
@@ -1474,6 +1515,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             self.feed = int(data["feed"])
             self.risky_clearance = bool(data["risky"])
             self.conventional = bool(data["conventional"])
+            self.extra_depth = float(data["extra_depth"])
+
             #must sort data first
             for each in self.plot_data:
                 for k, v in each.items():
@@ -1508,9 +1551,10 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self.leadout = float(data["leadout"])
                 self.adaptive = bool(data["adaptive"])
                 self.feedscale = float(data["feedscale"])
-                if data["refZ"] is not None:
-                    self.referenceZ = float(data["refZ"])
+                self.cutter_diam = float(data["tool_diam"])
+                self.referenceZ = float(data["refZ"])
                 self.diam = float(data["diam"])
+                self.flute_gap = float(data["flute_gap"])
                 if data["svgfile"] is not None:
                     self.svg_profile_path = data["svgfile"]["path"]
                 else:
