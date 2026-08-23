@@ -54,6 +54,7 @@ $(function() {
         self.radius_adjust = ko.observable(0);
         self.singleB = ko.observable(0);
         self.risky = ko.observable(0);
+        self.flute_gap = ko.observable(0);
         //Facet
         self.tool_diam = ko.observable(6.35);
         self.step_over = ko.observable(0.5);

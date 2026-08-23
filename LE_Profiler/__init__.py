@@ -222,6 +222,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
         min = self.ind_v[0] 
         max = self.ind_v[-1]
+        self._logger.info(f"min: {min}, max: {max}")
         #hold on to our reference min and max values if 0,0 changes
         self.start_min = min
         self.start_max = max
@@ -243,6 +244,10 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             x_val = f"{i:.2f}"
             generated_data.append([x_val,z_val])
             i = i+increment
+        #scenario where spline doesn't put through origin....
+        self._logger.debug(generated_data)
+        if self.axis == "Z" and max == 0.0 and float(generated_data[-1][1]) != 0.0:
+            generated_data.append(['0.0','0.0'])
         self._logger.debug(generated_data)
 
         #send generated_data to plotly at the front end
@@ -456,18 +461,14 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         else:
             raise ValueError("Failed to find X coordinate for the given arc length.")
 
-    def calc_feedrate(self, thefeed, coord1, coord2):
-        x1, z1, b1 = coord1["X"], coord1["Z"], coord1["B"]
-        x2, z2, b2 = coord2["X"], coord2["Z"], coord2["B"]
-        b1 = np.deg2rad(-b1)
-        b2 = np.deg2rad(-b2)
-        xt1 = x1 - self.tool_length*np.sin(b1)
-        zt1 = z1 - self.tool_length*np.cos(b1)
-        xt2 = x2 - self.tool_length*np.sin(b2)
-        zt2 = z2 - self.tool_length*np.cos(b2)
-        ds = np.sqrt((xt2-xt1)**2 + (zt2-zt1)**2)
-        feed = thefeed/ds
-        return feed
+    def calc_feedrate(self, thefeed, profile1, profile2):
+        surface_dist = abs(self.get_arc(profile1, profile2))
+        if surface_dist < 1e-9:
+            return thefeed
+
+        time_min = surface_dist / thefeed
+        # G93 inverse-time feedrate (1/minutes)
+        return 1.0 / time_min if time_min > 0 else thefeed
 
     def safe_retract(self):
         sign = ""
@@ -636,14 +637,10 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     self._logger.debug(f"linear distance: {linear_distance} at profile_point: {profile_points[i]} scaled to feed {feed}")
 
             if self.feed_correct == 2:
-                if previous_coord:
-                    feed = self.calc_feedrate(self.feed, previous_coord, coord)
+                if i > 1:
+                    feed = self.calc_feedrate(self.feed, each, profile_points[i-1])
                 else:
                     feed = self.feed
-
-            if previous_feed:
-                ratio = 1.25
-                feed = max(previous_feed/ratio, min(feed, previous_feed*ratio))
 
             pass_list.append(f"G93 G1 X{coord['X']:0.3f} Z{coord['Z']:0.3f} A{seg_rot*i:0.3f} B{coord['B']:0.3f} F{feed:0.1f}")
 
@@ -932,10 +929,25 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                             # Adaptive feed scaling
                             if self.adaptive and thiscut < self.step_down:
                                 scale = self.feedscale + (1.0 - self.feedscale) * (thiscut / self.step_down)
-                                feed = (self.feed if previous_coord is None else self.calc_feedrate(self.feed, previous_coord, {"X": baseX[idx], "Z": baseZ[idx], "B": B_deg[idx]})) * scale
+                                if previous_coord is None:
+                                    feed = self.feed
+                                else:
+                                    if self.axis == "X":
+                                        pc = baseZ[idx-1]
+                                        cc = baseZ[idx]
+                                    if self.axis == "Z":
+                                        pc = baseX[idx-1]
+                                        cc = baseZ[idx]
+                                    self.calc_feedrate(self.feed, pc, cc) * scale
                             else:
                                 if previous_coord:
-                                    feed = self.calc_feedrate(self.feed, previous_coord, {"X": baseX[idx], "Z": baseZ[idx], "B": B_deg[idx]})
+                                    if self.axis == "X":
+                                        pc = baseZ[idx-1]
+                                        cc = baseZ[idx]
+                                    if self.axis == "Z":
+                                        pc = baseX[idx-1]
+                                        cc = baseZ[idx]
+                                    feed = self.calc_feedrate(self.feed, pc, cc)
                                 else:
                                     feed = self.feed
                             
@@ -1627,6 +1639,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             self.side = data["side"]
             self.smooth_points = int(data["smoothing"])
             getB = bool(data["getB"])
+
             #must sort data first
             for each in self.plot_data:
                 for k, v in each.items():
@@ -1635,6 +1648,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self.plot_data = sorted(self.plot_data, key=lambda x: x["x"])
             if self.axis == "Z":
                 self.plot_data = sorted(self.plot_data, key=lambda x: x["z"])
+                self._logger.info(self.plot_data)
             self.create_spline()
 
             sign, safe = self.safe_retract()
