@@ -40,6 +40,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         self.max_B = float(0)
         self.x_steps = float(0)
         self.power = float(0)
+        self.laser_angles = []
         self.start_max = False
         self.axis = 'X'
         self.side = "front"
@@ -187,15 +188,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             segments.append(current_segment)
         
         if len(segments) > 1:
-            #zero_segment = list(segments[0])
-            #duplicate zero segment at 360
-            #for each in zero_segment:
-            #    each[2] = 360.0
-            #segments.append(zero_segment)
             self.do_oval = True
 
-        #self._logger.info(segments)
-        
         arr = np.array(segments)
         #sort, must be increasing
         if self.axis == 'Z':
@@ -327,8 +321,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             b_angle = self.min_B
         #recalculate normal in case it is outside B range
         normal = math.radians(b_angle)
-        
-        #self._logger.info(f"Normal angle: {normal}, slope: {slope},  B angle: {b_angle} x={coord}, z={z_value}")
         
         if self.axis == "X":
             normal = normal + math.pi / 2 
@@ -467,7 +459,19 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             return thefeed
 
         time_min = surface_dist / thefeed
+        self._logger.debug(f"Feed calc. Coords {profile1} {profile2}, distance {surface_dist}, time_min {time_min}")
         # G93 inverse-time feedrate (1/minutes)
+        return 1.0 / time_min if time_min > 0 else thefeed
+
+    def calc_feedrate_dist(self, thefeed, dist):
+        """G93 inverse-time feedrate from a pre-computed arc distance.
+
+        Identical math to calc_feedrate but bypasses get_arc / quad entirely,
+        using a distance that was already integrated once at job-setup time.
+        """
+        if dist < 1e-9:
+            return thefeed
+        time_min = dist / thefeed
         return 1.0 / time_min if time_min > 0 else thefeed
 
     def safe_retract(self):
@@ -601,11 +605,11 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         start = self.calc_coords(profile_points[0])
         command_list.append("G90")
         command_list.append("G94")
-        #command_list.append(f"F{self.feed}")
         command_list.append(f"G0 {safe}{sign}{self.clearance+self.retract:0.3f}")
         move_1 = f"G0 X{start['X']:0.4f}"
         move_2 = f"G0 Z{start['Z']:0.4f}"
-        b_move = f"G0 B{start['B']:0.4f}"
+        #include A here
+        b_move = f"G0 A{self.laser_angles[0]} B{start['B']:0.4f}"
         command_list.append(b_move)
         if self.axis == "X":
             command_list.append(move_1)
@@ -614,13 +618,12 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             command_list.append(move_2)
             command_list.append(move_1)
 
-        command_list.append(f"G0 X{start['X']:0.4f} Z{start['Z']:0.4f} A0 B{start['B']:0.4f}")
+        command_list.append(f"G0 X{start['X']:0.4f} Z{start['Z']:0.4f} B{start['B']:0.4f}")
         if self.test:
             command_list.append(f"{fire} S{self.weak_laser}")
         else:
             command_list.append(f"{fire} S{self.power}")
         
-        #command_list.append(f"F{self.feed}")
         #this is to handle A rotations
         i = -1
         previous_coord = None
@@ -642,16 +645,19 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 else:
                     feed = self.feed
 
-            pass_list.append(f"G93 G1 X{coord['X']:0.3f} Z{coord['Z']:0.3f} A{seg_rot*i:0.3f} B{coord['B']:0.3f} F{feed:0.1f}")
+            pass_list.append(f"G93 G1 X{coord['X']:0.3f} Z{coord['Z']:0.3f} B{coord['B']:0.3f} F{feed:0.1f}")
 
             previous_coord = coord
             previous_feed = feed
-        #make sure we move back to last A position before starting reverse pass
-        pass_list.append(f"G0 A{seg_rot*i:0.3f}")    
-        
+ 
+        num_lines = len(self.laser_angles)
         i = 1
-        while i <= self.segments:
-            command_list.append(f"(Starting segment {i} of {self.segments})")
+        line_idx = 0
+        self._logger.info(self.laser_angles[line_idx])
+        while line_idx < num_lines:
+            thisangle = self.laser_angles[line_idx]
+            command_list.append(f"(Starting line {line_idx+1} of {num_lines} at A={thisangle})")
+            command_list.append(f"G0 A{thisangle}")
             command_list.extend(pass_list)
             if not self.laser_uni:
                 pass_list = pass_list[::-1]
@@ -673,9 +679,11 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 if not self.laser_uni:
                     pass_list = pass_list[::-1]
             #rotate
-            command_list.append("G0 A0") #return A to 0 first
-            command_list.append(f"G0 A{A_rot:0.3f}")
-            command_list.append("G92 A0")
+            #command_list.append("G0 A0") #return A to 0 first
+            #next_angle = self.laser_angles[line_idx + 1] if line_idx + 1 < num_lines else 360.0
+            #command_list.append(f"G0 A{next_angle:0.3f}")
+            #command_list.append("G92 A0")
+            line_idx += 1
             i += 1
         command_list.append("G94")
         command_list.append("M5")
@@ -711,7 +719,17 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         
         profile_points = self.resample_profile()
         self._logger.info(profile_points)
-        
+
+        # PRE-COMPUTE arc distances between every pair of adjacent profile points.
+        # profile_points never change order in generate_facet_job, so this table is
+        # valid for both forward and reverse traversal passes.
+        # seg_arcs[i] = arc length from profile_points[i] to profile_points[i+1]
+        seg_arcs = [
+            abs(self.get_arc(profile_points[i], profile_points[i + 1]))
+            for i in range(len(profile_points) - 1)
+        ]
+        self._logger.info(f"Pre-computed {len(seg_arcs)} arc segments for facet job")
+
         # Preamble
         command_list.append("G21")
         command_list.append("G90")
@@ -751,20 +769,17 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         # Start and end angles for the tool center
         start_a = offset_deg
         end_a = facet_angle - offset_deg
-        #arc_span = end_a - start_a
         arc_span = facet_angle
         # Calculate num_a_steps as close as possible to what the user wants
-        # (for example, based on initial step_over)
         initial_step_angle = math.degrees((tool_radius * self.step_over) / max_radius)
         num_a_steps = int(round(arc_span / initial_step_angle))
         if num_a_steps < 1:
             num_a_steps = 1
 
-        # Now, recalculate step_over so that num_a_steps is integer and covers the arc evenly
+        # Recalculate step_over so that num_a_steps is integer and covers arc evenly
         step_angle = arc_span / num_a_steps
         step_over = max_radius * math.radians(step_angle) / tool_radius
         self._logger.info(f"Step-over adjusted. Original: {self.step_over}, new: {step_over}")
-        #added_steps = math.ceil(1/self.step_over)
         self.step_over = step_over
         delta_theta = (tool_radius * self.step_over) / max_radius
         delta_degrees = math.degrees(delta_theta)
@@ -772,15 +787,14 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         num_a_steps = num_a_steps+1 #this adjusts for being off by one delta_theta
         self._logger.info(f"Depth passes: {total_passes}, Overall facet angle: {facet_angle}, Offset degrees: {offset_deg}, Delta degrees (step-over): {math.degrees(delta_theta)}, Num A steps: {num_a_steps}")
 
-        #pre-calc a-rotation profile points
+        # Pre-calc A-rotation profile points (SVG path)
         surface_length = 0.0    
         svg_angle_arr = None
         if self.svg_profile_path and profile_points:
+            # Re-use seg_arcs for cumulative surface progress — no extra integration needed.
             surface_progress = np.zeros(len(profile_points), dtype=float)
             for idx in range(1, len(profile_points)):
-                surface_progress[idx] = surface_progress[idx - 1] + abs(
-                    self.get_arc(profile_points[idx - 1], profile_points[idx])
-                )
+                surface_progress[idx] = surface_progress[idx - 1] + seg_arcs[idx - 1]
             surface_length = surface_progress[-1]
             self.load_svg_a_profile(self.svg_profile_path, surface_length)
             if self.svg_a_offset:
@@ -789,8 +803,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 for idx, mm in enumerate(offsets_mm):
                     radius = radii_arr[idx]
                     svg_angle_arr[idx] = math.degrees(mm / radius) if radius > 0 else 0.0
-                #svg_angle_arr = np.diff(svg_angle_arr, prepend=svg_angle_arr[0])
             self._logger.debug(svg_angle_arr)
+
         # coords and B-derived trig at zero depth (reuse across all passes)
         coords_cache = [self.calc_coords(x) for x in profile_points]
         baseX = np.array([c["X"] for c in coords_cache], dtype=float)
@@ -800,12 +814,11 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         sinB = np.sin(B_rad_neg)
         cosB = np.cos(B_rad_neg)
 
-        # A-axis rotation per move, only used if profile is NOT used
+        # A-axis rotation per move, only used if SVG profile is NOT used
         seg_rot = self.arotate / (len(profile_points) - 1)
         self._logger.info(f"Segment rotation: {seg_rot}")
         A_rot = 360 / self.segments
 
-        #FIXME later
         if self.svg_a_offset and seg_rot:
             seg_rot = 0.0
 
@@ -813,7 +826,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         sign, safe = self.safe_retract()
         start = coords_cache[0]
         end = coords_cache[-1]
-        # retract = +5 along normal at each point; compute when needed by index
 
         current_a = 0
         a_direction = 1
@@ -827,7 +839,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             self.send_le_message(data)
             facet_list = []
             a_direction = 1
-            #facet_start_a = (facet_angle * j) + offset_deg
             facet_start_a = (facet_angle * j)
             command_list.append(f"(Starting facet {j+1} of {self.segments})")
             command_list.append(f"G0 {safe}{sign}{self.clearance+self.retract:0.3f}")
@@ -859,6 +870,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
                 for depth in range(1, total_passes + 1):
                     previous_coord = None
+                    prev_idx = None
                     nominal_depth = depth * self.step_down  # positive value
 
                     if depth > 1:
@@ -881,10 +893,10 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     previous_depth = nominal_depth
 
                     if not section_done:
-                        self._logger.debug(f"Cut depth on this pass: {thiscut}")
+                        #self._logger.debug(f"Cut depth on this pass: {thiscut}")
                         max_zmod = 0.0
 
-                        # Decide index order once per pass to avoid reversed(list) cost
+                        # Decide index order once per pass
                         if a_direction == 1:
                             idx_iter = range(len(profile_points))
                         else:
@@ -892,116 +904,95 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
                         i = 0
                         for idx in idx_iter:
-                            # radius for this x
                             cr = float(radii_arr[idx])
                             current_radius = max_radius if self.invert_facet else float(radii_arr[idx])
 
-                            # angle relative within the facet
-                            #relative_a = a_step * math.degrees(delta_theta) + math.degrees(delta_theta)  # same as before
                             relative_a = a_step * math.degrees(delta_theta)
                             z_mod = self.sagitta_distance(math.radians(relative_a), current_radius)
                             
                             if self.invert_facet:
-                                #self._logger.info(f"Step {a_step}, max_z: {max_z},z_mod: {z_mod},z_mod*d: {z_mod * self.depth_mod}")
                                 z_mod = max_z - (z_mod * self.depth_mod)
-                                
                             else:    
                                 z_mod = z_mod * self.depth_mod
 
                             if z_mod > max_zmod:
                                 max_zmod = z_mod
-                                #self._logger.debug(f"New max Z mod: {max_zmod:.2f}")
 
-                            if z_mod > nominal_depth:
+                            if z_mod >= nominal_depth:
                                 z_mod = nominal_depth
                                 if depth == 1 and ease_down:
+                                    self._logger.debug(f"Ease down, nominal: {nominal_depth}, ")
                                     fract = nominal_depth / 60.0
                                     z_mod = fract * (i + 1)
                                     facet_list.append(f"(Ease down step with z_mod: {z_mod:.2f})")
                                     if z_mod > nominal_depth:
-                                        facet_list.append(f"(Ease down done)")
+                                        facet_list.append(f"(Ease down done to z_mod {z_mod:.2f})")
                                         z_mod = nominal_depth
                                         ease_down = False
                             
-                            #Should allow adaptive on first pass...
                             if depth == 1 and not ease_down:
                                 thiscut = z_mod
-                            # Adaptive feed scaling
-                            if self.adaptive and thiscut < self.step_down:
-                                scale = self.feedscale + (1.0 - self.feedscale) * (thiscut / self.step_down)
-                                if previous_coord is None:
-                                    feed = self.feed
+
+                            if prev_idx is not None:
+                                arc_dist = seg_arcs[min(prev_idx, idx)]
+                                if self.adaptive and thiscut < self.step_down:
+                                    scale = self.feedscale + (1.0 - self.feedscale) * (thiscut / self.step_down)
+                                    #self._logger.debug(f"feed adjust scale {scale}")
+                                    feed = self.calc_feedrate_dist(self.feed, arc_dist) * scale
                                 else:
-                                    if self.axis == "X":
-                                        pc = baseZ[idx-1]
-                                        cc = baseZ[idx]
-                                    if self.axis == "Z":
-                                        pc = baseX[idx-1]
-                                        cc = baseZ[idx]
-                                    self.calc_feedrate(self.feed, pc, cc) * scale
+                                    feed = self.calc_feedrate_dist(self.feed, arc_dist)
                             else:
-                                if previous_coord:
-                                    if self.axis == "X":
-                                        pc = baseZ[idx-1]
-                                        cc = baseZ[idx]
-                                    if self.axis == "Z":
-                                        pc = baseX[idx-1]
-                                        cc = baseZ[idx]
-                                    feed = self.calc_feedrate(self.feed, pc, cc)
-                                else:
-                                    feed = self.feed
-                            
-                            # plunge reduction only for first emitted move of this pass
+                                feed = self.feed
+
+                            # Plunge reduction only for the first emitted move of this pass
                             if plunge:
                                 feed = self.feed / 2.0
 
-                            #first pass feed rate scaling for inverted
+                            # First-pass feed override for inverted facets
                             if j == 0 and a_step == 0 and self.invert_facet:
-                                if previous_coord:
-                                    feed = self.calc_feedrate(self.fpass, previous_coord, {"X": baseX[idx], "Z": baseZ[idx], "B": B_deg[idx]})
+                                if prev_idx is not None:
+                                    arc_dist = seg_arcs[min(prev_idx, idx)]
+                                    feed = self.calc_feedrate_dist(self.fpass, arc_dist)
                                 else:
-                                    feed = self.fpass
+                                    feed = self.feed
 
-                            #default
+                            # Default A move
                             a_move = current_a
 
-                            #These need to be mutually exclusive
+                            # These are mutually exclusive
                             if seg_rot:
                                 a_move = current_a + (seg_rot * i * a_direction)
                             
                             if svg_angle_arr is not None:
                                 a_move = step_start + (svg_angle_arr[idx])
-                                #self._logger.debug(f"A move with svg: {a_move}, svg angle {svg_angle_arr[idx]}")
                             
                             if self.do_oval:
-                                # facet uses negative depth direction; subtract ovality
                                 oval_mod = -self.ovality_mod(profile_points[idx], a_move)
                                 z_mod = z_mod + oval_mod
 
                             if self.extra_depth:
-                                #invert sign in this case
                                 ed = -self.extra_depth
                                 z_mod = z_mod + ed 
 
-                            # tip position at depth (-z_mod) using cached sin/cos
+                            # Tip position at depth (-z_mod) using cached sin/cos
                             trans_x = baseX[idx] + (-z_mod) * sinB[idx]
                             trans_z = baseZ[idx] + (-z_mod) * cosB[idx]
-
+                            #if self._logger.isEnabledFor(logging.DEBUG):
+                            #    facet_list.append(f"(Z for this cut:{z_mod})")
                             facet_list.append(f"G93 G1 X{trans_x:.3f} Z{trans_z:.3f} A{a_move:.3f} B{B_deg[idx]:.3f} F{feed:.1f}")
                             previous_coord = {"X": baseX[idx], "Z": baseZ[idx], "B": B_deg[idx]}
+                            prev_idx = idx
                             plunge = False
                             i += 1
 
                         a_direction *= -1
                     else:
-                        # retract from last index used (use idx from previous loop if available)
-                        # fall back to index 0 if not set
                         ridx = idx if 'idx' in locals() else 0
                         retract_x = baseX[ridx] + 5.0 * sinB[ridx]
                         retract_z = baseZ[ridx] + 5.0 * cosB[ridx]
                         facet_list.append(f"(Section done, retracting to safe position)")
                         facet_list.append(f"G0 X{retract_x:.3f} Z{retract_z:.3f} B{B_deg[ridx]:.3f}")
-
+                    #only do ease down on the first a_step
                     ease_down = False
                     if seg_rot or svg_angle_arr is not None:
                         current_a = a_move
@@ -1009,7 +1000,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 current_a += math.degrees(delta_theta)
                 a_measure += math.degrees(delta_theta)
                 step_start += math.degrees(delta_theta)
-                # retract at end of a_step using last index
+                # Retract at end of a_step using last index
                 ridx = idx if 'idx' in locals() else 0
                 facet_list.append(f"G0 X{(baseX[ridx] + 5.0 * sinB[ridx]):.3f} Z{(baseZ[ridx] + 5.0 * cosB[ridx]):.3f} B{B_deg[ridx]:.3f}")
 
@@ -1017,7 +1008,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             self._logger.info(f"Facet completion time: {completion}")
             command_list.extend(facet_list)
 
-            # rotate to next segment
+            # Rotate to next segment
             next_start = facet_angle * (j + 1)
             current_a = next_start
             a_measure = next_start
@@ -1062,6 +1053,17 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         command_list.append(f"(B-angle smoothing points: {self.smooth_points})")
         
         profile_points = self.resample_profile()
+
+        # PRE-COMPUTE arc distances between every pair of adjacent profile points.
+        # Done here (before the optional reversal) so the SVG surface-progress
+        # block can also use this table instead of calling get_arc again.
+        # seg_arcs[i] = arc length from profile_points[i] to profile_points[i+1]
+        seg_arcs = [
+            abs(self.get_arc(profile_points[i], profile_points[i + 1]))
+            for i in range(len(profile_points) - 1)
+        ]
+        self._logger.info(f"Pre-computed {len(seg_arcs)} arc segments for flute job")
+
         surface_length = 0.0    
         svg_angle_arr = None
 
@@ -1074,10 +1076,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         else:
             total_passes = int(passes)
         
-        #A profile
-        #requires knowing radii at all profile points, which means will need to collect Reference diameter
+        # A profile — requires knowing radii at all profile points
         if self.svg_profile_path and not self.diam:
-            #Send error, need diameter
             data = dict(type="simple_notify",
                         title="Diameter Error",
                         text="Usage of SVG profile requires the reference diameter to be non-zero.",
@@ -1094,11 +1094,10 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             vals = self.spline(pp_arr) 
             radii_arr = reference_radius + (vals - self.referenceZ)
 
+            # Re-use seg_arcs for cumulative surface progress — no extra integration needed.
             surface_progress = np.zeros(len(profile_points), dtype=float)
             for idx in range(1, len(profile_points)):
-                surface_progress[idx] = surface_progress[idx - 1] + abs(
-                    self.get_arc(profile_points[idx - 1], profile_points[idx])
-                )
+                surface_progress[idx] = surface_progress[idx - 1] + seg_arcs[idx - 1]
             surface_length = surface_progress[-1]
             self.load_svg_a_profile(self.svg_profile_path, surface_length)
             if self.svg_a_offset:
@@ -1107,31 +1106,30 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 for idx, mm in enumerate(offsets_mm):
                     radius = radii_arr[idx]
                     svg_angle_arr[idx] = math.degrees(mm / radius) if radius > 0 else 0.0
-                #flip array because flutes always start at smallest radius
+                # flip array because flutes always start at smallest radius
                 svg_angle_arr = np.flip(svg_angle_arr)
+
+                # Gap check
+                min_diam = np.min(radii_arr)*2
+                gap_ok = self.min_helix_pitch(min_diam,self.cutter_diam,self.segments,self.flute_gap)
+                if not gap_ok:
+                    return
             self._logger.debug(svg_angle_arr)
 
         # Calculate A rotation per flute and per move (for helical flutes)
         flute_angle = 360 / self.segments
         seg_rot = self.arotate / (len(profile_points) - 1) if len(profile_points) > 1 else 0
 
-        #gap check    
-        min_diam = np.min(radii_arr)*2
-        gap_ok = self.min_helix_pitch(min_diam,self.cutter_diam,self.segments,self.flute_gap)
-        if not gap_ok:
-            #problem with pitch
-            #send a message and get out of there
-            return
+        
 
-        #seg_rot and a profile are mutally exclusive
+        # seg_rot and a profile are mutually exclusive
         if self.svg_a_offset and seg_rot:
             seg_rot = 0.0
+
         # Lead-in/lead-out calculations
         lead_in_x = lead_out_x = total_in_step = total_out_step = in_inc = out_inc = None
         if self.leadin or self.leadout:
-            #try:
             if self.axis == "Z":
-                #swap for Z
                 lead_out_x = self.x_to_arc(profile_points, self.leadout, start=True)
                 lead_in_x = self.x_to_arc(profile_points, -self.leadin, start=False)
             else:
@@ -1173,15 +1171,15 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self._logger.info(f"steps lead-in: {total_in_step}, lead-out {total_out_step}")
                 self._logger.info(f"increment for lead-in: {in_inc}, lead-out {out_inc}")
             
-        # Reverse the profile for Z axis
-        #if self.axis == "Z":
-        #    profile_points.reverse()
-        
+        # Optionally reverse the profile for X axis.
+        # Reverse seg_arcs in lockstep so the index-based lookup stays correct:
+        #   seg_arcs[i] must always be the arc between profile_points[i] and [i+1].
         if self.axis == "X":
             z_at_min = self.spline(self.vMin)
             z_at_max = self.spline(self.vMax)
             if z_at_max < z_at_min:
                 profile_points.reverse()
+                seg_arcs.reverse()
 
         # Preamble
         command_list.append("G21")
@@ -1222,7 +1220,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 command_list.append(f"G0 A{a_move}")
 
             for current_pass in range(1, total_passes + 1):
-                #NOTE, using negative depths here
+                # NOTE: using negative depths here
                 nominal_depth = current_pass * self.step_down * -1
                 if current_pass == total_passes and last_pass_depth:
                     nominal_depth = self.depth * -1
@@ -1239,6 +1237,9 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
                 command_list.append(f"(Cut depth: {nominal_depth})")
                 previous_coord = None
+                # Track the index of the previously visited profile point so we
+                # can look up pre-computed arc distances without calling get_arc.
+                prev_idx = None
 
                 # Alternate direction for each pass
                 if flute_dir == 1:
@@ -1264,18 +1265,24 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     depth = nominal_depth
                     if self.leadin and total_in_step and leadin_check < total_in_step:
                         depth = self.lead_calc("in", nominal_depth, total_in_step - leadin_check, in_inc)
-                        #command_list.append(f"(lead in, index:{leadin_check} inc:{in_inc:0.1f} depth:{depth:0.2f})")
                     if self.leadout and total_out_step and leadout_check < total_out_step:
                         depth = self.lead_calc("out", nominal_depth, total_out_step - leadout_check, out_inc)
-                        #command_list.append(f"(lead out, index:{leadout_check} inc:{out_inc:0.1f} depth:{depth:0.2f})")
 
                     coord = self.calc_coords(each)
-                    if previous_coord:
-                        feed = self.calc_feedrate(self.feed, previous_coord, coord)
+
+                    # Feed rate via pre-computed arc distance.
+                    # seg_arcs[min(prev_idx, idx)] gives the distance between the
+                    # two adjacent points regardless of traversal direction:
+                    #   forward  (idx = prev+1): min → prev_idx → seg_arcs[prev_idx]
+                    #   backward (idx = prev-1): min → idx      → seg_arcs[idx]
+                    if prev_idx is not None:
+                        arc_dist = seg_arcs[min(prev_idx, idx)]
+                        feed = self.calc_feedrate_dist(self.feed, arc_dist)
                     else:
                         feed = self.feed
 
                     previous_coord = coord
+                    prev_idx = idx  # advance after arc lookup uses previous index
 
                     current_a = base_a
 
@@ -1295,11 +1302,12 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                         # Scale feed between maxscale (shallow cut) and 1.0 (full step_down)
                         if abs(thiscut) < self.step_down:
                             scale = (
-                                self.feedscale+
+                                self.feedscale +
                                 (1.0 - self.feedscale) * (abs(thiscut) / self.step_down)
                             )
                             self._logger.debug(f"feed adjust from {feed} to {feed*scale}")
                             feed = feed * scale
+
                     if self.extra_depth:
                         depth = depth + self.extra_depth
                     trans_x, trans_z = self.cut_depth_value(coord, depth)
@@ -1313,7 +1321,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     flute_dir *= -1  # Reverse direction for next pass
                 else:
                     if not lastcut:
-                        #move back to start
+                        # Move back to start
                         command_list.append(f"G0 {safe}{sign}{self.clearance+self.retract:0.3f}")
                         if self.axis == "X":
                             command_list.append(b_move)
@@ -1327,7 +1335,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             self._logger.info(f"Flute written in {completion}")
             # After all passes for this flute, rotate to next flute
             command_list.append(f"G0 A{(base_a + flute_angle):.3f}")
-            #command_list.append("G92 A0")
         command_list.append("G94")
         command_list.append("M5")
         command_list.append("M30")
@@ -1353,12 +1360,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         #truncate profile beween vMin and vMax
         profile_points = self.resample_profile()
 
-        #gcr = G_Code_Rip.G_Code_Rip()
         basefolder = self._settings.getBaseFolder("uploads")
         self.gcr.Read_G_Code(f"{basefolder}/{self.selected_file}", XYarc2line=True, units="mm")
-        #profile name
-        #self._logger.debug(self.gcr.g_code_data)
-        #make the first move a safe X,Z move
 
         profile_name = self.name.removesuffix(".txt")
         gcode_name = os.path.basename(self.selected_file).removesuffix(".gcode")
@@ -1368,28 +1371,21 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         sf = profile_dist/self.width
         new_width = self.width*sf
         self._logger.info(f"Profile distance: {profile_dist}, Scale factors: {sf}, New width:{new_width}")
-        #now get the X position that will correspond to that length along thearc
+        #now get the X position that will correspond to that length along the arc
         target_x = self.x_to_arc(profile_points, new_width, start=True)
 
-        #realizing that this is correct for the first
-        
         a = target_x-self.vMin
 
         xtoscale = (a)/self.width
         self._logger.info(f"Target X-value={target_x}, xtoscale={xtoscale}")
-        #have to go back and handle z cases too
         temp,minx,maxx,miny,maxy,minz,maxz  = self.gcr.scale_rotate_code(self.gcr.g_code_data,
                                                                     [xtoscale,sf,1,1],
                                                                     0,
                                                                     split_moves=True,
                                                                     min_seg_length=self.new_increment)
-        #self._logger.info(temp)
         midx = (minx+maxx)/2
         midy = (miny+maxy)/2
-        #self._logger.info(self.plot_data)
         self._logger.info(f"midx: {midx}")
-        #calculate offset, just x for now
-        #xoffset = (self.vMax+self.vMin)/2 + self.vMin
         xoffset = abs(minx) + self.vMin
         self._logger.info(f"X offset: {xoffset}")
         temp = self.gcr.scale_translate(temp,translate=[-xoffset,0,0.0])
@@ -1407,8 +1403,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                         self.do_oval,
                                         plugin=self)
                                         
-        #self._logger.info(temp)
-        #get first X and Z moves that are not complex
         first_x = None
         first_z = None
         for line in temp:
@@ -1447,7 +1441,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     continue
                 else:
                     if not first_move and line.startswith("G0"):
-                        #parse to see if this is a G0 that goes to some X and Z value
                         x,z,b = self._parse_g0(line)
                         if x is None or z is None:
                             pass
@@ -1551,8 +1544,11 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             if self.mode == "laser":
                 self.test = bool(data["test"])
                 self.power = int(data["power"])
-
-                #self.start_max = bool(data["start"])
+                angles = data.get("angles")
+                if angles:
+                    angles = list(set(angles))
+                    self.laser_angles  = sorted(float(a) for a in angles)
+                    self._logger.info(self.laser_angles)
                 self.generate_laser_job()
                 return
 
@@ -1608,14 +1604,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                                                                     delay=10000,
                                                                     notify_type="error"))
                     return
-                '''if self.axis != 'X':
-                    self._plugin_manager.send_plugin_message("latheengraver", dict(type="simple_notify",
-                                                                    title="Facet Error",
-                                                                    text="Facets are currently only compatible with X-axis scans.",
-                                                                    hide=True,
-                                                                    delay=10000,
-                                                                    notify_type="error"))
-                    return'''
                 self.generate_facet_job()
                 return
             
@@ -1628,8 +1616,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             self._plugin_manager.send_plugin_message('Profiler', data)
             
         if command == "go_to_position":
-            #self.vMax = float(data["vMax"])
-            #self.vMin = float(data["vMin"])
             self.plot_data = data["plot_data"]
             self.target = float(data["target"])
             self.clearance = float(data["clear"])
@@ -1653,8 +1639,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
             sign, safe = self.safe_retract()
 
-            #self._logger.info(self.x_coords)
-            #Move to safe position
             gcode = ["G90","G21","G94",f"G0 {safe}{sign}{self.retract+self.clearance:0.4f}"]
             coord = self.calc_coords(self.target)
             if getB:
@@ -1680,9 +1664,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
 
 
     def get_update_information(self):
-        # Define the configuration for your plugin to use with the Software Update
-        # Plugin here. See https://docs.octoprint.org/en/master/bundledplugins/softwareupdate.html
-        # for details.
         return {
             "Profiler": {
                 "displayName": "Profiler",
@@ -1700,15 +1681,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         }
 
 
-# If you want your plugin to be registered within OctoPrint under a different name than what you defined in setup.py
-# ("OctoPrint-PluginSkeleton"), you may define that here. Same goes for the other metadata derived from setup.py that
-# can be overwritten via __plugin_xyz__ control properties. See the documentation for that.
 __plugin_name__ = "Profiler"
 
-
-# Set the Python version your plugin is compatible with below. Recommended is Python 3 only for all new plugins.
-# OctoPrint 1.4.0 - 1.7.x run under both Python 3 and the end-of-life Python 2.
-# OctoPrint 1.8.0 onwards only supports Python 3.
 __plugin_pythoncompat__ = ">=3,<4"  # Only Python 3
 
 def __plugin_load__():

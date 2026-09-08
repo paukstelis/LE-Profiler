@@ -44,6 +44,10 @@ $(function() {
         self.feed = ko.observable(200);
         self.test = ko.observable(0);
         self.segments = ko.observable(1);
+        self.laser_sections = ko.observableArray([]);
+        self.polarAngles = ko.observableArray([]);
+        self.polarSymmetry = ko.observable(1);
+
         //Fluting/wrapping
         self.scale = false;
         self.refdiam = ko.observable(0);
@@ -403,6 +407,155 @@ $(function() {
             self.selectedSVGFile = self.svgfiles[theindex];
         });
 
+        //Laser selection plot
+        self.openPolarEditor = function () {
+            var segments = self.segments();
+            angles = [];
+            step = 360.0/segments;
+            for (var i = 0; i < segments; i++) angles.push(step * i);
+            self.polarAngles(angles);
+            drawPolarPlot();
+            $("#polarEditorModal").show();
+        };
+
+        function drawPolarPlot() {
+            var angles = self.polarAngles();
+            var lines = angles.map(function (a) {
+                return {
+                    type: "scatterpolar",
+                    r: [0.25, 1],
+                    theta: [a, a],
+                    mode: "lines",
+                    line: { color: "black", width: 1 },
+                    showlegend: false,
+                    hoverinfo: "skip"
+                };
+            });
+
+            var layout = {
+                polar: {
+                    radialaxis: { visible: false, range: [0, 1], showgrid: false, showline: false },
+                    angularaxis: { direction: "clockwise", rotation: 90, showgrid: false, showline: false }
+                },
+                showlegend: false,
+                margin: { t: 10, b: 10, l: 10, r: 10 }
+            };
+
+            Plotly.newPlot("polarPlot", lines, layout).then(function (gd) {
+                gd.removeAllListeners && gd.removeAllListeners("click");
+                gd.onclick = function (evt) {
+                    var theta = pixelToPolarTheta(gd, evt);
+                    if (theta != null) {
+                        handlePolarClick(theta);
+                    }
+                };
+            });
+        }
+
+        // Convert a raw mouse click (pixel space) into the polar angle (degrees),
+        // matching the angularaxis rotation/direction settings above.
+        function pixelToPolarTheta(gd, evt) {
+            var fullLayout = gd._fullLayout;
+            var polar = fullLayout.polar;
+            if (!polar) return null;
+
+            var rect = gd.getBoundingClientRect();
+            var clickX = evt.clientX - rect.left;
+            var clickY = evt.clientY - rect.top;
+
+            // Polar subplot domain -> pixel bounding box
+            var xDomain = polar.domain.x; // [x0, x1] in fraction of full width
+            var yDomain = polar.domain.y; // [y0, y1] in fraction of full height
+
+            var plotWidth = fullLayout.width;
+            var plotHeight = fullLayout.height;
+
+            var px0 = xDomain[0] * plotWidth;
+            var px1 = xDomain[1] * plotWidth;
+            var py0 = (1 - yDomain[1]) * plotHeight; // y-domain is bottom-up in Plotly
+            var py1 = (1 - yDomain[0]) * plotHeight;
+
+            var cx = (px0 + px1) / 2;
+            var cy = (py0 + py1) / 2;
+
+            var dx = clickX - cx;
+            var dy = clickY - cy;
+
+            // Standard math angle (counter-clockwise from +X axis, 0-360)
+            var mathAngle = Math.atan2(-dy, dx) * 180 / Math.PI; // invert dy: screen Y is flipped
+            mathAngle = (mathAngle + 360) % 360;
+
+            // Adjust for angularaxis rotation=90, direction="clockwise"
+            // Plotly's theta=0 points at "rotation" degrees in math-angle terms,
+            // and increases clockwise instead of counter-clockwise.
+            var rotation = 90;
+            var theta = (rotation - mathAngle + 360) % 360;
+
+            return theta;
+        }
+
+        function angleDelta(a, b) {
+            var d = Math.abs(a - b) % 360;
+            return d > 180 ? 360 - d : d;
+        }
+
+        function nearestNeighbors(clickAngle, angles) {
+            var sorted = angles.slice().sort(function (a, b) { return a - b; });
+            var lower = null, upper = null;
+            for (var i = 0; i < sorted.length; i++) {
+                var next = sorted[(i + 1) % sorted.length];
+                var span = (next - sorted[i] + 360) % 360;
+                var offset = (clickAngle - sorted[i] + 360) % 360;
+                if (offset <= span) {
+                    lower = sorted[i];
+                    upper = next;
+                    break;
+                }
+            }
+            return [lower, upper];
+        }
+
+        function applySymmetry(newAngle, isAdd) {
+            var sym = parseInt(self.polarSymmetry()); //1, 2, 4
+            console.log("symmetry is "+sym);
+            var step = 360 / sym;
+            var angles = self.polarAngles();
+            var updated = angles.slice();
+            for (var k = 0; k < sym; k++) {
+                var a = (newAngle + step * k) % 360;
+                if (isAdd) {
+                    if (!updated.some(function (x) { return angleDelta(x, a) < 0.01; })) {
+                        updated.push(a);
+                    }
+                } else {
+                    updated = updated.filter(function (x) { return angleDelta(x, a) >= 0.01; });
+                }
+            }
+            self.polarAngles(updated);
+        }
+
+        function handlePolarClick(clickTheta) {
+            var mode = $("input[name='polarMode']:checked").val();
+            var angles = self.polarAngles();
+
+            if (mode === "add") {
+                var neighbors = nearestNeighbors(clickTheta, angles);
+                if (neighbors[0] == null) return;
+                var mid = (neighbors[0] + (((neighbors[1] - neighbors[0]) + 360) % 360) / 2) % 360;
+                applySymmetry(mid, true);
+            } else {
+                var closest = angles.reduce(function (best, a) {
+                    var d = angleDelta(a, clickTheta);
+                    return (d < best.d) ? { a: a, d: d } : best;
+                }, { a: null, d: Infinity });
+                if (closest.a != null && closest.d < 10) {
+                    applySymmetry(closest.a, false);
+                }
+            }
+            drawPolarPlot();
+        }
+
+
         // When a file is selected, load and plot the profile
         $("#scan_file_select").on("change", function () {
             var filePath = $("#scan_file_select option:selected").attr("path");
@@ -503,6 +656,11 @@ $(function() {
                 console.log(self.pd);
                 plotProfile(self.isZFile);
             }
+
+            if (plugin == 'Profiler' && data.type === "polar_angles") {
+                self.polarAngles(data.angles);
+                drawPolarPlot();
+            }
         }
 
         //transmit the file path. It will be procesed and data sent back
@@ -534,7 +692,7 @@ $(function() {
                     console.error("Error message not sent");
                 });
         };
-
+ 
         self.get_pd = function() {
             var data = {
                 vMin: self.vMin,
@@ -603,6 +761,7 @@ $(function() {
                 max_B: self.max_B(),
                 min_B: self.min_B(),
                 power: self.power(),
+                angles: self.polarAngles(),
                 feed: self.feed(),
                 test: self.test(),
                 segments: self.segments(),
