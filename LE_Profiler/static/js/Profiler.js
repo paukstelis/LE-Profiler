@@ -7,7 +7,7 @@ $(function() {
         self.vMax = null;
         self.vMin = null;
         self.target_position = []; 
-        self.smoothedZValues = [];  // Store smoothed Z values
+        self.smoothedZValues = [];
         self.annotations = [];
         self.markerAction = ko.observable("zeroPoint");
         self.tool_length = ko.observable(0.0);
@@ -35,10 +35,9 @@ $(function() {
         self.pd = null;
         self.wrapfiles = null;
         self.scans = null;
-        //experimental features
         self.exp = ko.observable(false);
 
-        //Laser
+        // Laser
         self.laser_mode = ko.observable(false);
         self.power = ko.observable(250);
         self.feed = ko.observable(200);
@@ -48,7 +47,18 @@ $(function() {
         self.polarAngles = ko.observableArray([]);
         self.polarSymmetry = ko.observable(1);
 
-        //Fluting/wrapping
+        // Color palette for committed layers
+        var LAYER_COLORS = [
+            '#e41a1c', '#377eb8', '#4daf4a', '#984ea3',
+            '#ff7f00', '#a65628', '#f781bf', '#8dd3c7'
+        ];
+
+        // Polar plot shell constants
+        var WORK_R     = 1.0;   // radius of the working (inner) area
+        var SHELL_W    = 0.1;   // radial width of each committed-layer shell
+        var MAX_SHELLS = 10;    // max committed layers; total radial extent = WORK_R + MAX_SHELLS * SHELL_W = 2.0
+
+        // Fluting/wrapping
         self.scale = false;
         self.refdiam = ko.observable(0);
         self.refset = null;
@@ -59,7 +69,7 @@ $(function() {
         self.singleB = ko.observable(0);
         self.risky = ko.observable(0);
         self.flute_gap = ko.observable(0);
-        //Facet
+        // Facet
         self.tool_diam = ko.observable(6.35);
         self.step_over = ko.observable(0.5);
         self.facet_invert = ko.observable(0);
@@ -68,7 +78,6 @@ $(function() {
         self.svgfiles = null;
 
         self.extra_depth = ko.observable(0.0);
-
         self.mode = ko.observable("none");
 
         function toggleSection(targetMode) {
@@ -93,7 +102,6 @@ $(function() {
             }
         };
 
-        // Fetch the list of .txt files from the uploads/scans directory
         self.fetchProfileFiles = function() {
             OctoPrint.files.listForLocation("local/scans", false)
                 .done(function(data) {
@@ -113,7 +121,6 @@ $(function() {
             OctoPrint.files.listForLocation("local/wrap", false)
                 .done(function(data) {
                     var files = data.children;
-                    console.log(files);
                     files.sort((a,b) => { return a.name.localeCompare(b.name) });
                     self.wrapfiles = files;
                     populateFileSelector(files, "#wrapFileSelect", "gcode");
@@ -127,7 +134,6 @@ $(function() {
             OctoPrint.files.listForLocation("local/scans", false)
                 .done(function(data) {
                     var files = data.children;
-                    console.log(files);
                     files = files
                         .filter(f => f.name && f.name.toLowerCase().endsWith(".svg"))
                         .sort((a,b) => { return a.name.localeCompare(b.name) });
@@ -147,8 +153,8 @@ $(function() {
                 var option = $("<option>")
                     .text(file.display)
                     .attr("value", file.name)
-                    .attr("download",file.refs.download)
-                    .attr("path",file.path)
+                    .attr("download", file.refs.download)
+                    .attr("path", file.path)
                     .attr("index", i);
                 fileSelector.append(option);
             });
@@ -156,22 +162,15 @@ $(function() {
 
         self.onBeforeBinding = function () {
             self.settings = self.global_settings.settings.plugins.profiler;
-            //console.log(self.global_settings);
             self.fetchProfileFiles();
             $(".laser").hide();
             $(".wrap").hide();
             $(".zscan").hide();
-
-
             self.smoothing = self.settings.smooth_points;
-            //burned by this several times now....just force the user to put in the value
-            //self.tool_length = self.settings.tool_length;
             self.increment = self.settings.increment;
             self.exp = self.settings.exp();
-
         };
 
-        // Bind mode change event
         $("#modeSelect").on("change", function () {
             self.mode($(this).val());
             self.onModeChange();
@@ -183,61 +182,86 @@ $(function() {
                 self.pd = self.get_pd();
                 return true;
             }
-        }
-        
-                
-        function plotProfile(isZFile) {
+        };
 
+        // ── Profile plot ──────────────────────────────────────────────────────
+        function plotProfile(isZFile) {
             var trace = {
                 x: self.xValues,
                 y: self.zValues,
                 mode: 'lines',
                 name: 'Profile',
-                line: {
-                    color: 'blue',
-                    width: 2
-                }
+                line: { color: 'blue', width: 2 }
             };
+
+            // Build a colored rect shape for each committed layer
+            var shapes = [];
+            self.laser_sections().forEach(function(layer) {
+                if (isZFile) {
+                    // Z-file: range is along the Y axis
+                    shapes.push({
+                        type: 'rect',
+                        xref: 'paper', yref: 'y',
+                        x0: 0, x1: 1,
+                        y0: Math.min(layer.vMin, layer.vMax),
+                        y1: Math.max(layer.vMin, layer.vMax),
+                        fillcolor: layer.color,
+                        opacity: 0.25,
+                        line: { width: 1, color: layer.color }
+                    });
+                } else {
+                    // X-file: range is along the X axis
+                    shapes.push({
+                        type: 'rect',
+                        xref: 'x', yref: 'paper',
+                        x0: Math.min(layer.vMin, layer.vMax),
+                        x1: Math.max(layer.vMin, layer.vMax),
+                        y0: 0, y1: 1,
+                        fillcolor: layer.color,
+                        opacity: 0.25,
+                        line: { width: 1, color: layer.color }
+                    });
+                }
+            });
 
             var layout = {
                 title: 'Profile Plot',
-                xaxis: { 
+                xaxis: {
                     title: 'X Axis',
-                    scaleanchor: 'y',  // Ensure equal scaling
+                    scaleanchor: 'y',
                     scaleratio: 1
                 },
-                yaxis: { 
+                yaxis: {
                     title: 'Z Axis',
-                    //scaleanchor: 'x',  // Equal scaling with X axis
                     scaleratio: 1,
                     autorange: 'reversed'
                 },
-                annotations: self.annotations,  // Include any annotations (tags)
-                showlegend: false
+                annotations: self.annotations,
+                shapes: shapes,
+                showlegend: false,
+                margin: { t: 20, b: 20, l: 20, r: 10 },
             };
 
-            // Plot the data
-            Plotly.newPlot('profilePlot', [trace], layout)
+            var config = {
+                displayModeBar: false,
+            }
+
+            Plotly.newPlot('profilePlot', [trace], layout, config)
             .then(function() {
-                // Ensure plotly_click is bound AFTER the plot is rendered
                 document.getElementById('profilePlot').on('plotly_click', function (data) {
                     if (data && data.points && data.points.length > 0) {
                         var clickedPoint = data.points[0];
                         var clickedX = clickedPoint.x;
                         var clickedZ = clickedPoint.y;
-                        console.log(self.markerAction());
                         if (self.markerAction() === "zeroPoint") {
-                            // Normalize both X and Z axes
                             self.xValues = self.xValues.map(x => x - clickedX);
                             self.zValues = self.zValues.map(z => z - clickedZ);
-                            self.annotations = []; // Clear all annotations
+                            self.annotations = [];
                             self.vMin = null;
                             self.vMax = null;
                             self.target_position = null;
-                            plotProfile(self.isZFile); // Replot based on file mode
-                            //Plotly.react('profilePlot');
+                            plotProfile(self.isZFile);
                         } else if (self.isZFile) {
-                            // Z-file mode: Handle Z-axis selections
                             if (self.markerAction() == "Max") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Max'));
                                 if (self.vMin != null && Number(clickedZ) < Number(self.vMin)) {
@@ -245,17 +269,7 @@ $(function() {
                                     return;
                                 }
                                 self.vMax = Number(clickedZ);
-                                self.annotations.push({
-                                    x: clickedX,
-                                    y: clickedZ,
-                                    xref: 'x',
-                                    yref: 'y',
-                                    text: 'Max: '+self.vMax,
-                                    showarrow: true,
-                                    arrowhead: 2,
-                                    ax: 30,
-                                    ay: -30
-                                });
+                                self.annotations.push({ x: clickedX, y: clickedZ, xref: 'x', yref: 'y', text: 'Max: '+self.vMax, showarrow: true, arrowhead: 2, ax: 30, ay: -30 });
                                 plotProfile(true);
                             } else if (self.markerAction() === "Min") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Min'));
@@ -264,53 +278,21 @@ $(function() {
                                     return;
                                 }
                                 self.vMin = Number(clickedZ);
-                                self.annotations.push({
-                                    x: clickedX,
-                                    y: clickedZ,
-                                    xref: 'x',
-                                    yref: 'y',
-                                    text: 'Min: '+self.vMin,
-                                    showarrow: true,
-                                    arrowhead: 2,
-                                    ax: -30,
-                                    ay: -30
-                                });
+                                self.annotations.push({ x: clickedX, y: clickedZ, xref: 'x', yref: 'y', text: 'Min: '+self.vMin, showarrow: true, arrowhead: 2, ax: -30, ay: -30 });
                                 plotProfile(true);
-
-                            }  else if (self.markerAction() === "targetPoint") {
+                            } else if (self.markerAction() === "targetPoint") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Target'));
                                 self.target_position = clickedZ;
-                                self.annotations.push({
-                                    x: clickedX,
-                                    y: clickedZ,
-                                    xref: 'x',
-                                    yref: 'y',
-                                    text: 'Target: '+self.target_position,
-                                    showarrow: true,
-                                    arrowhead: 2,
-                                    ax: 20,
-                                    ay: 20
-                                });
+                                self.annotations.push({ x: clickedX, y: clickedZ, xref: 'x', yref: 'y', text: 'Target: '+self.target_position, showarrow: true, arrowhead: 2, ax: 20, ay: 20 });
                                 plotProfile(true);
-                            }   else if (self.markerAction() === "refset") {
+                            } else if (self.markerAction() === "refset") {
                                 var offset = getSmartAnnotationOffset(clickedX, clickedZ, self.xValues, self.zValues);
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('D'));
                                 self.referenceZ = clickedX;
-                                self.annotations.push({
-                                    x: clickedX,
-                                    y: clickedZ,
-                                    xref: 'x',
-                                    yref: 'y',
-                                    text: 'D='+self.refdiam(),
-                                    showarrow: true,
-                                    arrowhead: 2,
-                                    ax: offset.ax,
-                                    ay: offset.ay
-                                });
+                                self.annotations.push({ x: clickedX, y: clickedZ, xref: 'x', yref: 'y', text: 'D='+self.refdiam(), showarrow: true, arrowhead: 2, ax: offset.ax, ay: offset.ay });
                                 plotProfile(false);
                             }
                         } else if (self.isXFile) {
-                            // X-file mode: Handle X-axis selections
                             if (self.markerAction() === "Max") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Max'));
                                 if (self.vMin && clickedX < self.vMin) {
@@ -318,17 +300,7 @@ $(function() {
                                     return;
                                 }
                                 self.vMax = clickedX;
-                                self.annotations.push({
-                                    x: clickedX,
-                                    y: clickedZ,
-                                    xref: 'x',
-                                    yref: 'y',
-                                    text: 'Max: '+self.vMax,
-                                    showarrow: true,
-                                    arrowhead: 2,
-                                    ax: 30,
-                                    ay: -30
-                                });
+                                self.annotations.push({ x: clickedX, y: clickedZ, xref: 'x', yref: 'y', text: 'Max: '+self.vMax, showarrow: true, arrowhead: 2, ax: 30, ay: -30 });
                                 if (!self.do_distance()) { plotProfile(false); }
                             } else if (self.markerAction() === "Min") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Min'));
@@ -337,49 +309,18 @@ $(function() {
                                     return;
                                 }
                                 self.vMin = clickedX;
-                                self.annotations.push({
-                                    x: clickedX,
-                                    y: clickedZ,
-                                    xref: 'x',
-                                    yref: 'y',
-                                    text: 'Min: '+self.vMin,
-                                    showarrow: true,
-                                    arrowhead: 2,
-                                    ax: -30,
-                                    ay: -30
-                                });
+                                self.annotations.push({ x: clickedX, y: clickedZ, xref: 'x', yref: 'y', text: 'Min: '+self.vMin, showarrow: true, arrowhead: 2, ax: -30, ay: -30 });
                                 if (!self.do_distance()) { plotProfile(false); }
                             } else if (self.markerAction() === "targetPoint") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Target'));
                                 self.target_position = clickedX;
-                                self.annotations.push({
-                                    x: clickedX,
-                                    y: clickedZ,
-                                    xref: 'x',
-                                    yref: 'y',
-                                    text: 'Target: '+self.target_position,
-                                    showarrow: true,
-                                    arrowhead: 2,
-                                    ax: 20,
-                                    ay: 20
-                                });
+                                self.annotations.push({ x: clickedX, y: clickedZ, xref: 'x', yref: 'y', text: 'Target: '+self.target_position, showarrow: true, arrowhead: 2, ax: 20, ay: 20 });
                                 plotProfile(false);
-                            }
-                            else if (self.markerAction() === "refset") {
+                            } else if (self.markerAction() === "refset") {
                                 var offset = getSmartAnnotationOffset(clickedX, clickedZ, self.xValues, self.zValues);
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('D'));
                                 self.referenceZ = clickedZ;
-                                self.annotations.push({
-                                    x: clickedX,
-                                    y: clickedZ,
-                                    xref: 'x',
-                                    yref: 'y',
-                                    text: 'D='+self.refdiam(),
-                                    showarrow: true,
-                                    arrowhead: 2,
-                                    ax: offset.ax,
-                                    ay: offset.ay
-                                });
+                                self.annotations.push({ x: clickedX, y: clickedZ, xref: 'x', yref: 'y', text: 'D='+self.refdiam(), showarrow: true, arrowhead: 2, ax: offset.ax, ay: offset.ay });
                                 plotProfile(false);
                             }
                         }
@@ -407,11 +348,11 @@ $(function() {
             self.selectedSVGFile = self.svgfiles[theindex];
         });
 
-        //Laser selection plot
+        // ── Polar editor ──────────────────────────────────────────────────────
         self.openPolarEditor = function () {
             var segments = self.segments();
-            angles = [];
-            step = 360.0/segments;
+            var angles = [];
+            var step = 360.0 / segments;
             for (var i = 0; i < segments; i++) angles.push(step * i);
             self.polarAngles(angles);
             drawPolarPlot();
@@ -420,30 +361,62 @@ $(function() {
 
         function drawPolarPlot() {
             var angles = self.polarAngles();
-            var lines = angles.map(function (a) {
+            var n = self.laser_sections().length;
+
+            // Working layer outer edge extends to meet the innermost committed shell
+            // (or stays at WORK_R when there are no committed layers yet)
+            var n = self.laser_sections().length;
+            var workOuter = WORK_R + (MAX_SHELLS - n) * SHELL_W;
+            // Current working layer — from 0.25 up to the innermost committed shell
+            var traces = angles.map(function(a) {
                 return {
                     type: "scatterpolar",
-                    r: [0.25, 1],
+                    r: [0.25, workOuter],
                     theta: [a, a],
                     mode: "lines",
-                    line: { color: "black", width: 1 },
+                    line: { color: "black", width: 1.5 },
                     showlegend: false,
                     hoverinfo: "skip"
                 };
             });
 
+            // Committed layers — static outer shells, first committed = outermost
+            // Layer i=0 → r_outer = WORK_R + MAX_SHELLS * SHELL_W = 2.0
+            //              r_inner = WORK_R + (MAX_SHELLS - 1) * SHELL_W = 1.9
+            // Layer i=1 → r_outer = 1.9, r_inner = 1.8  … and so on inward
+            self.laser_sections().forEach(function(layer, i) {
+                var r_outer = WORK_R + (MAX_SHELLS - i) * SHELL_W;
+                var r_inner = WORK_R + (MAX_SHELLS - i - 1) * SHELL_W;
+                layer.angles.forEach(function(a) {
+                    traces.push({
+                        type: "scatterpolar",
+                        r: [r_inner, r_outer],
+                        theta: [a, a],
+                        mode: "lines",
+                        line: { color: layer.color, width: 2 },
+                        showlegend: false,
+                        hoverinfo: "skip"
+                    });
+                });
+            });
+
             var layout = {
                 polar: {
-                    radialaxis: { visible: false, range: [0, 1], showgrid: false, showline: false },
+                    radialaxis: {
+                        visible: false,
+                        range: [0, WORK_R + MAX_SHELLS * SHELL_W],  // static [0, 2.0]
+                        showgrid: false,
+                        showline: false
+                    },
                     angularaxis: { direction: "clockwise", rotation: 90, showgrid: false, showline: false }
                 },
                 showlegend: false,
                 margin: { t: 10, b: 10, l: 10, r: 10 }
             };
 
-            Plotly.newPlot("polarPlot", lines, layout).then(function (gd) {
+            Plotly.newPlot("polarPlot", traces, layout).then(function(gd) {
                 gd.removeAllListeners && gd.removeAllListeners("click");
-                gd.onclick = function (evt) {
+                gd.onclick = function(evt) {
                     var theta = pixelToPolarTheta(gd, evt);
                     if (theta != null) {
                         handlePolarClick(theta);
@@ -452,8 +425,6 @@ $(function() {
             });
         }
 
-        // Convert a raw mouse click (pixel space) into the polar angle (degrees),
-        // matching the angularaxis rotation/direction settings above.
         function pixelToPolarTheta(gd, evt) {
             var fullLayout = gd._fullLayout;
             var polar = fullLayout.polar;
@@ -463,16 +434,14 @@ $(function() {
             var clickX = evt.clientX - rect.left;
             var clickY = evt.clientY - rect.top;
 
-            // Polar subplot domain -> pixel bounding box
-            var xDomain = polar.domain.x; // [x0, x1] in fraction of full width
-            var yDomain = polar.domain.y; // [y0, y1] in fraction of full height
-
+            var xDomain = polar.domain.x;
+            var yDomain = polar.domain.y;
             var plotWidth = fullLayout.width;
             var plotHeight = fullLayout.height;
 
             var px0 = xDomain[0] * plotWidth;
             var px1 = xDomain[1] * plotWidth;
-            var py0 = (1 - yDomain[1]) * plotHeight; // y-domain is bottom-up in Plotly
+            var py0 = (1 - yDomain[1]) * plotHeight;
             var py1 = (1 - yDomain[0]) * plotHeight;
 
             var cx = (px0 + px1) / 2;
@@ -481,16 +450,11 @@ $(function() {
             var dx = clickX - cx;
             var dy = clickY - cy;
 
-            // Standard math angle (counter-clockwise from +X axis, 0-360)
-            var mathAngle = Math.atan2(-dy, dx) * 180 / Math.PI; // invert dy: screen Y is flipped
+            var mathAngle = Math.atan2(-dy, dx) * 180 / Math.PI;
             mathAngle = (mathAngle + 360) % 360;
 
-            // Adjust for angularaxis rotation=90, direction="clockwise"
-            // Plotly's theta=0 points at "rotation" degrees in math-angle terms,
-            // and increases clockwise instead of counter-clockwise.
             var rotation = 90;
             var theta = (rotation - mathAngle + 360) % 360;
-
             return theta;
         }
 
@@ -500,7 +464,7 @@ $(function() {
         }
 
         function nearestNeighbors(clickAngle, angles) {
-            var sorted = angles.slice().sort(function (a, b) { return a - b; });
+            var sorted = angles.slice().sort(function(a, b) { return a - b; });
             var lower = null, upper = null;
             for (var i = 0; i < sorted.length; i++) {
                 var next = sorted[(i + 1) % sorted.length];
@@ -516,19 +480,18 @@ $(function() {
         }
 
         function applySymmetry(newAngle, isAdd) {
-            var sym = parseInt(self.polarSymmetry()); //1, 2, 4
-            console.log("symmetry is "+sym);
+            var sym = parseInt(self.polarSymmetry());
             var step = 360 / sym;
             var angles = self.polarAngles();
             var updated = angles.slice();
             for (var k = 0; k < sym; k++) {
                 var a = (newAngle + step * k) % 360;
                 if (isAdd) {
-                    if (!updated.some(function (x) { return angleDelta(x, a) < 0.01; })) {
+                    if (!updated.some(function(x) { return angleDelta(x, a) < 0.01; })) {
                         updated.push(a);
                     }
                 } else {
-                    updated = updated.filter(function (x) { return angleDelta(x, a) >= 0.01; });
+                    updated = updated.filter(function(x) { return angleDelta(x, a) >= 0.01; });
                 }
             }
             self.polarAngles(updated);
@@ -544,7 +507,7 @@ $(function() {
                 var mid = (neighbors[0] + (((neighbors[1] - neighbors[0]) + 360) % 360) / 2) % 360;
                 applySymmetry(mid, true);
             } else {
-                var closest = angles.reduce(function (best, a) {
+                var closest = angles.reduce(function(best, a) {
                     var d = angleDelta(a, clickTheta);
                     return (d < best.d) ? { a: a, d: d } : best;
                 }, { a: null, d: Infinity });
@@ -555,57 +518,107 @@ $(function() {
             drawPolarPlot();
         }
 
+        // ── Layer management ──────────────────────────────────────────────────
 
-        // When a file is selected, load and plot the profile
+        /**
+         * Commit the current Min/Max range + polar line layout as a new layer.
+         * Draws a colored band on the profile plot and adds the lines to the
+         * inner ring of the polar plot.
+         */
+        self.commitLayer = function() {
+            if (self.vMin === null || self.vMin === undefined ||
+                self.vMax === null || self.vMax === undefined) {
+                alert("Set Min and Max before committing a layer.");
+                return;
+            }
+            if (self.polarAngles().length === 0) {
+                alert("Open the polar editor and define at least one line before committing.");
+                return;
+            }
+
+            var layerIndex = self.laser_sections().length;
+            var color = LAYER_COLORS[layerIndex % LAYER_COLORS.length];
+
+            self.laser_sections.push({
+                id: layerIndex + 1,
+                vMin: self.vMin,
+                vMax: self.vMax,
+                angles: self.polarAngles().slice(),   // snapshot
+                color: color
+            });
+
+            // Clear Min/Max annotations and working values for the next layer
+            self.vMin = null;
+            self.vMax = null;
+            self.annotations = self.annotations.filter(
+                a => !a.text.startsWith('Min') && !a.text.startsWith('Max')
+            );
+
+            plotProfile(self.isZFile);
+
+            // Refresh polar plot if it's currently visible
+            if ($("#polarEditorModal").is(":visible")) {
+                drawPolarPlot();
+            }
+        };
+
+        /** Remove a single committed layer (called from the KO foreach in the template). */
+        self.removeLayer = function(layer) {
+            self.laser_sections.remove(layer);
+            // Re-number the remaining layers
+            self.laser_sections().forEach(function(l, i) { l.id = i + 1; });
+            // Force KO to notify (objects are mutated, not replaced)
+            self.laser_sections.valueHasMutated();
+            plotProfile(self.isZFile);
+            if ($("#polarEditorModal").is(":visible")) {
+                drawPolarPlot();
+            }
+        };
+
+        /** Remove all committed layers after confirmation. */
+        self.clearAllLayers = function() {
+            if (self.laser_sections().length === 0) return;
+            if (confirm("Remove all " + self.laser_sections().length + " committed layer(s)?")) {
+                self.laser_sections([]);
+                plotProfile(self.isZFile);
+                if ($("#polarEditorModal").is(":visible")) {
+                    drawPolarPlot();
+                }
+            }
+        };
+
+        // ── File / scan events ────────────────────────────────────────────────
         $("#scan_file_select").on("change", function () {
             var filePath = $("#scan_file_select option:selected").attr("path");
             self.name = $("#scan_file_select option:selected").attr("value");
-            console.log(filePath);
             if (!filePath) return;
-        
-            // Determine the mode based on the file name
+
             self.isZFile = $("#scan_file_select option:selected").text().startsWith("Z");
             self.isXFile = $("#scan_file_select option:selected").text().startsWith("X");
-            if (!$("#scan_file_select option:selected").text().endsWith("txt")){
-                console.log("Not a txt file");
+            if (!$("#scan_file_select option:selected").text().endsWith("txt")) {
                 alert("Selected file is not a text scan file.");
-                return
+                return;
             }
 
-            if (self.isZFile) {
-                $(".zscan").show();
-            }
-            else {
-                $(".zscan").hide();
-            }
+            if (self.isZFile) { $(".zscan").show(); }
+            else              { $(".zscan").hide(); }
 
             self.annotations = [];
             self.vMax = null;
             self.vMin = null;
             self.target_position = null;
 
-            // Send the file info off
             self.createGraph(filePath);
-            
         });
-        
 
-        // Button click event to reverse the Z values and replot
         $("#reverseZButton").on("click", function () {
-            var fileName = $("#scan_file_select option:selected").attr("value");
-
-            //console.log(fileName.charAt(0));
             if (self.isZFile) {
                 self.zValues.reverse();
-                //self.zValues = self.zValues.map(z => z * -1); 
                 plotProfile(true);
-            }
-            else {
-                self.xValues.reverse(); // Reverse the X values
+            } else {
+                self.xValues.reverse();
                 plotProfile(false);
-
             }
-            //plotProfile();     // Replot with the reversed Z values
         });
 
         self.getPointsInRange = function() {
@@ -613,7 +626,6 @@ $(function() {
             for (var i = 0; i < self.xValues.length; i++) {
                 var x = parseFloat(self.xValues[i]);
                 var z = parseFloat(self.zValues[i]);
-                // For Z files, range is along Z axis; for X files, range is along X axis
                 var rangeVal = self.isZFile ? z : x;
                 if (self.vMin != null && rangeVal < self.vMin) continue;
                 if (self.vMax != null && rangeVal > self.vMax) continue;
@@ -623,11 +635,8 @@ $(function() {
         };
 
         self.onDataUpdaterPluginMessage = function(plugin, data) {
-
-            if (plugin == 'Profiler' && data.laser === false || data.laser === true ) {
-                //console.log(data);
+            if (plugin == 'Profiler' && data.laser === false || data.laser === true) {
                 self.laser_mode(data.laser);
-                //console.log("Laser mode set");
             }
 
             if (plugin == 'Profiler' && data.type == 'graph' && data.axis == 'X') {
@@ -646,14 +655,11 @@ $(function() {
                 self.pd = data.pd;
                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Width'));
                 self.annotations.push({
-                    x: 0.5,
-                    y: 1,
-                    xref: 'paper',
-                    yref: 'paper',
+                    x: 0.5, y: 1,
+                    xref: 'paper', yref: 'paper',
                     text: 'Width: '+self.width+'<br>Pro. Dist.: '+self.pd,
                     showarrow: false,
                 });
-                console.log(self.pd);
                 plotProfile(self.isZFile);
             }
 
@@ -661,80 +667,56 @@ $(function() {
                 self.polarAngles(data.angles);
                 drawPolarPlot();
             }
-        }
+        };
 
-        //transmit the file path. It will be procesed and data sent back
         self.createGraph = function(filePath) {
-            var data = {
-                filepath: filePath
-            };
-
-            OctoPrint.simpleApiCommand("profiler", "creategraph", data)
-                .done(function(response) {
-                    console.log("Graph info transmitted");
-                })
-                .fail(function() {
-                    console.error("Graph info not transmitted");
-                });
-
+            OctoPrint.simpleApiCommand("profiler", "creategraph", { filepath: filePath })
+                .done(function() { console.log("Graph info transmitted"); })
+                .fail(function() { console.error("Graph info not transmitted"); });
         };
 
         self.send_error_messasge = function(message) {
-            var data = {
-                message: message
-            };
-
-            OctoPrint.simpleApiCommand("latheengraver", "send_error_message", data)
-                .done(function(response) {
-                    console.log("Error message sent");
-                })
-                .fail(function() {
-                    console.error("Error message not sent");
-                });
+            OctoPrint.simpleApiCommand("latheengraver", "send_error_message", { message: message })
+                .done(function() { console.log("Error message sent"); })
+                .fail(function() { console.error("Error message not sent"); });
         };
- 
+
         self.get_pd = function() {
-            var data = {
-                vMin: self.vMin,
-                vMax: self.vMax
-            };
-
-            OctoPrint.simpleApiCommand("profiler", "get_arc_length", data)
-                .done(function(response) {
-                    console.log("Info for arc length sent");
-                })
-                .fail(function() {
-                    console.error("Did not get arc length");
-                });
-
+            OctoPrint.simpleApiCommand("profiler", "get_arc_length", { vMin: self.vMin, vMax: self.vMax })
+                .done(function() { console.log("Info for arc length sent"); })
+                .fail(function() { console.error("Did not get arc length"); });
         };
 
+        // ── Write Job ─────────────────────────────────────────────────────────
         self.writeGCode = function() {
-            //Data sanity checking
             if (self.mode() == "none") {
                 alert("Mode must be set to write a job.");
                 return;
             }
 
-            if (self.vMax === null || self.vMax === undefined || self.vMin === null || self.vMin === undefined) {
-                 alert("Min. and Max. values must be set.");
-                 return;
+            // Laser mode: require at least one committed layer
+            if (self.mode() === "laser") {
+                if (self.laser_sections().length === 0) {
+                    alert("Commit at least one layer before writing a laser job.");
+                    return;
+                }
+            } else {
+                if (self.vMax === null || self.vMax === undefined ||
+                    self.vMin === null || self.vMin === undefined) {
+                    alert("Min. and Max. values must be set.");
+                    return;
+                }
             }
 
             if (self.mode() == "facet" || self.mode() == "wrap" || self.mode() == "flute") {
-
                 if (self.referenceZ === null || Number(self.diam) < 1) {
                     alert("Reference Diameter must be set.");
                     return;
                 }
-
             }
 
-
             if (self.mode() == "flute") {
-
-                if (Number(self.step_down()) > Number(self.depth())
-                    || Number(self.step_down()) <= 0) {
+                if (Number(self.step_down()) > Number(self.depth()) || Number(self.step_down()) <= 0) {
                     alert("Step down must be less than or equal to total depth and greater than 0.");
                     return;
                 }
@@ -745,15 +727,23 @@ $(function() {
                 return;
             }
 
-            if (self.isZFile) {
-                var clearance = Math.max(...self.xValues);
-            }
-            else {
-                var clearance = Math.max(...self.zValues);
-            }
+            var clearance;
+            if (self.isZFile) { clearance = Math.max(...self.xValues); }
+            else              { clearance = Math.max(...self.zValues); }
 
             var plot = self.getPointsInRange();
-            //console.log(plot);
+
+            // Serialize committed laser layers for the backend
+            var serializedLayers = self.laser_sections().map(function(layer) {
+                return {
+                    id:     layer.id,
+                    vMin:   layer.vMin,
+                    vMax:   layer.vMax,
+                    angles: layer.angles,
+                    color:  layer.color
+                };
+            });
+
             var data = {
                 plot_data: plot,
                 mode: self.mode(),
@@ -761,12 +751,13 @@ $(function() {
                 max_B: self.max_B(),
                 min_B: self.min_B(),
                 power: self.power(),
-                angles: self.polarAngles(),
+                //angles: self.polarAngles(),          // current working angles (single-layer fallback)
                 feed: self.feed(),
                 test: self.test(),
                 segments: self.segments(),
                 vMax: self.vMax,
                 vMin: self.vMin,
+                laser_sections: serializedLayers,    // ← multi-layer payload
                 filename: self.selectedGCodeFile,
                 svgfile: self.selectedSVGFile,
                 diam: self.refdiam(),
@@ -796,39 +787,29 @@ $(function() {
                 extra_depth: self.extra_depth(),
                 flute_gap: self.flute_gap(),
             };
-    
+
             OctoPrint.simpleApiCommand("profiler", "write_job", data)
-                .done(function(response) {
-                    console.log("GCode written successfully.");
-                })
-                .fail(function() {
-                    console.error("Failed to write GCode.");
-                });
+                .done(function() { console.log("GCode written successfully."); })
+                .fail(function() { console.error("Failed to write GCode."); });
         };
 
         self.gotoposition = function(getB) {
-            //Data sanity checking
             if (self.isZFile && self.side == "none") {
                 alert("Tool direction must be set for Z scans");
                 return;
             }
-
             if (self.tool_length() < 10.0) {
                 alert("You must provide rotation center to surface distance");
                 return;
             }
-    
-            if (self.isZFile) {
-                if (self.side === "back") {
-                    var clearance = Math.abs(Math.min(...self.xValues));
-                }
-                else {
-                    var clearance = Math.max(...self.xValues);
-                }
-            }
 
-            else {
-                var clearance = Math.max(...self.zValues);
+            var clearance;
+            if (self.isZFile) {
+                clearance = (self.side === "back")
+                    ? Math.abs(Math.min(...self.xValues))
+                    : Math.max(...self.xValues);
+            } else {
+                clearance = Math.max(...self.zValues);
             }
 
             var plot = self.getPointsInRange();
@@ -844,14 +825,9 @@ $(function() {
                 smoothing: self.smoothing(),
                 getB: getB,
             };
-            console.log(data);
             OctoPrint.simpleApiCommand("profiler", "go_to_position", data)
-                .done(function(response) {
-                    console.log("Go to target successful.");
-                })
-                .fail(function() {
-                    console.error("Failed to go to target");
-                });
+                .done(function() { console.log("Go to target successful."); })
+                .fail(function() { console.error("Failed to go to target"); });
         };
 
         self.onTabChange = function(current, previous) {
@@ -872,31 +848,14 @@ $(function() {
 });
 
 function getSmartAnnotationOffset(x, y, xArray, yArray) {
-    // Find plot center
     var xMin = Math.min(...xArray);
     var xMax = Math.max(...xArray);
     var yMin = Math.min(...yArray);
     var yMax = Math.max(...yArray);
     var xMid = (xMin + xMax) / 2;
     var yMid = (yMin + yMax) / 2;
-
-    // Default offset
-    var ax = 30;
-    var ay = -30;
-
-    // Horizontal: left or right of center
-    if (x < xMid) {
-        ax = 30; // right
-    } else {
-        ax = -30; // left
-    }
-
-    // Vertical: above or below center
-    if (y < yMid) {
-        ay = 30; // below
-    } else {
-        ay = -30; // above
-    }
-
-    return { ax: ax, ay: ay };
+    return {
+        ax: x < xMid ?  30 : -30,
+        ay: y < yMid ?  30 : -30
+    };
 }
