@@ -793,7 +793,7 @@ $(function() {
                 .fail(function() { console.error("Failed to write GCode."); });
         };
 
-        self.gotoposition = function(getB) {
+        self.gotoposition = function(position) {
             if (self.isZFile && self.side == "none") {
                 alert("Tool direction must be set for Z scans");
                 return;
@@ -802,8 +802,18 @@ $(function() {
                 alert("You must provide rotation center to surface distance");
                 return;
             }
+            
+            if (position === "zero") { self.target_position = 0.0; }
+            if (position === "min") { self.target_position = self.vMin; }
+            if (position === "max") { self.target_position = self.vMax; }
+            if (position === "target") { console.log("Going to target position: " + self.target_position); }
+            if (self.target_position === null || self.target_position === undefined) {
+                alert("The movement position must be set.");
+                return;
+            }
 
             var clearance;
+            var getB = false;
             if (self.isZFile) {
                 clearance = (self.side === "back")
                     ? Math.abs(Math.min(...self.xValues))

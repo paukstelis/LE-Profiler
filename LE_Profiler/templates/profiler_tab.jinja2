@@ -78,10 +78,10 @@
         <div id="machinecontrols" class="span12" style="margin-bottom: 10px;">
             <label style="font-size: 12px; font-weight: bold;">Machine Control:</label>
             <div style="display: flex; flex-wrap: nowrap; font-size: 12px;">
-                <button class="btn btn-small" data-bind="click: moveToZero">Move to Zero</button>
-                <button class="btn btn-small" data-bind="click: moveToTarget">Move to Target</button>
-                <button class="btn btn-small" data-bind="click: moveToMax">Move to Max</button>
-                <button class="btn btn-small" data-bind="click: moveToMin">Move to Min</button>
+                <button class="btn btn-small" data-bind="click: function() { gotoposition('zero'); }">Move to Zero</button>
+                <button class="btn btn-small" data-bind="click: function() { gotoposition('target'); }">Move to Target</button>
+                <button class="btn btn-small" data-bind="click: function() { gotoposition('max'); }">Move to Max</button>
+                <button class="btn btn-small" data-bind="click: function() { gotoposition('min'); }">Move to Min</button>
                 <button class="btn btn-small laser" data-bind="visible: laser_mode(), enable: laser_mode(), click: function() {}">Weak Laser</button>
             </div>
         </div>
