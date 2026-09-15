@@ -35,7 +35,7 @@
         <!-- ── Drop downs ───────────────────────────────────── -->
         <div id="drops" class="span12">
             <div class="span6" style="width:300px; float:left;">
-                <label for="modeSelect">Mode:</label>
+                <label for="modeSelect">Profiler Mode:</label>
                 <select id="modeSelect" data-bind="value: mode">
                     <option value="none"></option>
                     <option title="Create horizontal basket illusion-style lines" value="laser">Laser</option>
@@ -44,6 +44,7 @@
                     <option title="Create facets or scallops on an object" value="facet">Facet</option>
                 </select>
             </div>
+
             <div class="span6">
                 <div>
                     <label for="scan_file_select">Select Scan File:</label>
@@ -58,9 +59,32 @@
         </div>
 
         <div style="clear: both;"></div>
+        <div id="markerActionContainer" class="span12" style="margin-bottom: 10px;">
+            <label style="font-size: 12px; font-weight: bold;">Marker Selection:</label>
+            <div style="display: flex; flex-wrap: nowrap; font-size: 12px;">
+                <label style="font-size: 12px;margin-right: 15px;"><input type="radio" name="markerAction" value="zeroPoint" data-bind="checked: markerAction"> Set Zero</label>
+                <label class="mode-section wrap facet flute" style="font-size: 12px;margin-right: 15px;"><input type="radio" class="mode-section wrap facet flute" name="markerAction" value="refset" data-bind="checked: markerAction"> Diameter Reference</label>
+                <label style="font-size: 12px;margin-right: 15px;"><input type="radio" name="markerAction" value="Max" data-bind="checked: markerAction"> Set Max</label>
+                <label style="font-size: 12px;margin-right: 15px;"><input type="radio" name="markerAction" value="Min" data-bind="checked: markerAction"> Set Min</label>
+                <label style="font-size: 12px;margin-right: 15px;"><input type="radio" name="markerAction" value="targetPoint" data-bind="checked: markerAction"> Set Target</label>
+            </div>
+        </div>
+        <div style="clear: both;"></div>
         <!-- ── Profile plot ──────────────────────────────────────── -->
         <div id="profilePlot" style="width: 100%; height: 500px;"></div>
 
+
+        <div style="clear: both;"></div>
+        <div id="machinecontrols" class="span12" style="margin-bottom: 10px;">
+            <label style="font-size: 12px; font-weight: bold;">Machine Control:</label>
+            <div style="display: flex; flex-wrap: nowrap; font-size: 12px;">
+                <button class="btn btn-small" data-bind="click: moveToZero">Move to Zero</button>
+                <button class="btn btn-small" data-bind="click: moveToTarget">Move to Target</button>
+                <button class="btn btn-small" data-bind="click: moveToMax">Move to Max</button>
+                <button class="btn btn-small" data-bind="click: moveToMin">Move to Min</button>
+                <button class="btn btn-small laser" data-bind="visible: laser_mode(), enable: laser_mode(), click: function() {}">Weak Laser</button>
+            </div>
+        </div>
         <!-- ── Custom Line Layout (laser only) ──────────────────── -->
         <div class="control-group laser" style="display:none;">
             <label class="control-label">Custom Line Layout</label>
@@ -262,17 +286,6 @@
             <div class="span6">
 
                 <div>
-                    <label for="markerSelector">Marker Selection:</label>
-                    <select id="markerSelector" data-bind="value: markerAction">
-                        <option value="zeroPoint">Set Zero</option>
-                        <option class="mode-section wrap facet flute" value="refset">Diameter Reference</option>
-                        <option value="Max">Set Max Limit</option>
-                        <option value="Min">Set Min Limit</option>
-                        <option value="targetPoint">Set Target</option>
-                    </select>
-                </div>
-
-                <div>
                     <label title="The maximum (positive) value for the B-axis."
                            data-toggle="tooltip" for="maxB">
                         Maximum B-angle:
@@ -432,9 +445,6 @@
                 data-bind="click: function() { gotoposition(0) }">Go to Target</button>
         <button id="b_button" class="btn btn-primary"
                 data-bind="click: function() { gotoposition(1) }">B at Target</button>
-        <button class="btn btn-primary"
-                data-bind="visible: laser_mode(), enable: laser_mode(),
-                           click: function() {}">Weak Laser</button>
     </div>
 
 </div>

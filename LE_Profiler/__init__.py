@@ -549,7 +549,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         Calculate minimum pitch to maintain desired gap between helical cuts.
         D: cylinder diameter (mm),this should be SMALLEST diamete
         d: cutter diameter (mm)
-        N: number of evenly-spaced start positions, self.segments
+        N: number of evenly-spaced start positions, self.segments, in future may have to calculate closests pairs
         gap: desired gap between cut edges (mm), default 0 (just touching), self.flute_gap
         Returns minimum pitch P (mm) or None if geometry is impossible
         """
@@ -1113,6 +1113,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 min_diam = np.min(radii_arr)*2
                 gap_ok = self.min_helix_pitch(min_diam,self.cutter_diam,self.segments,self.flute_gap)
                 if not gap_ok:
+                    #send some failure message here.....
                     return
             self._logger.debug(svg_angle_arr)
 

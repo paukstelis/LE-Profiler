@@ -190,7 +190,7 @@ $(function() {
                 x: self.xValues,
                 y: self.zValues,
                 mode: 'lines',
-                name: 'Profile',
+                //name: 'Profile',
                 line: { color: 'blue', width: 2 }
             };
 
@@ -225,14 +225,13 @@ $(function() {
             });
 
             var layout = {
-                title: 'Profile Plot',
                 xaxis: {
-                    title: 'X Axis',
+                    //title: 'X Axis',
                     scaleanchor: 'y',
                     scaleratio: 1
                 },
                 yaxis: {
-                    title: 'Z Axis',
+                    //title: 'Z Axis',
                     scaleratio: 1,
                     autorange: 'reversed'
                 },
@@ -244,6 +243,7 @@ $(function() {
 
             var config = {
                 displayModeBar: false,
+                showlegend: false,
             }
 
             Plotly.newPlot('profilePlot', [trace], layout, config)
