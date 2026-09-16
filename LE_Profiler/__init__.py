@@ -568,137 +568,255 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
     def generate_laser_job(self):
         data = dict(title="Writing Gcode...", text="Laser job is writing.", delay=60000, type="info")
         self.send_le_message(data)
+        sign, safe = self.safe_retract()
+        last_profile_pt = None
         command_list = []
-        pass_list = []
-        feed = self.feed
         if self.use_m3:
             fire = "M3"
         else:
             fire = "M4"
+
         command_list.append(f"(LatheEngraver Laser job)")
-        command_list.append(f"(Min and Max values: {self.vMin}, {self.vMax} )")
+        command_list.append(f"(Min and Max values: {self.vMin}, {self.vMax})")
         command_list.append(f"(Tool length: {self.tool_length})")
         command_list.append(f"(Segments: {self.segments}, A rotation: {self.arotate})")
         command_list.append(f"(B angle range: {self.min_B} to {self.max_B})")
         command_list.append(f"(Fixed axis increment: {self.new_increment})")
         command_list.append(f"(B-angle smoothing points: {self.smooth_points})")
-        profile_points = self.resample_profile()
 
-        self._logger.info(profile_points)
-            #TODO: reverse profile points if it is a Z scan
-        #reverse the profile for Z axis
-        if self.axis == "Z":
-            profile_points.reverse()
-        #A axis rotation per segment- this is very simplistic. Maybe calculate total distance and fraction of that total distace per move?
-        seg_rot = self.arotate/(len(profile_points)-1)
-        self._logger.info(f"Segment rotation: {seg_rot}")
-        A_rot = 360/self.segments
-
-        #Preamble stuff here
-        command_list.append("G21")
-        command_list.append("G90")
-        
-        #for our safe position(s)
         sign, safe = self.safe_retract()
 
-        #move to start
-        start = self.calc_coords(profile_points[0])
+        # ── Normalize input into a uniform list of section dicts ──────────────
+        # Each section dict must have:
+        #   vMin, vMax       : profile domain for this section
+        #   angles           : list of A-axis angles that apply to this section
+        #   feed             : laser feed rate (mm/min)
+        #   power            : laser S-value
+        #
+        # If laser_sections is not supplied, fall back to the legacy single-section
+        # path using self.vMin/vMax, self.laser_angles, self.feed, self.power.
+        if self.laser_sections:
+            raw_sections = self.laser_sections
+        else:
+            raw_sections = [{
+                'vMin':   self.vMin,
+                'vMax':   self.vMax,
+                'angles': self.laser_angles,
+                'feed':   self.feed,
+                'power':  self.power,
+            }]
+
+        # ── Build per-section profile points and forward pass lists ───────────
+        # We temporarily swap self.vMin/vMax so resample_profile() works correctly
+        # for each section's domain.
+        saved_vMin, saved_vMax = self.vMin, self.vMax
+        section_data = []
+
+        for sec in raw_sections:
+            self.vMin = float(sec['vMin'])
+            self.vMax = float(sec['vMax'])
+            sec_feed  = float(sec.get('feed',  self.feed))
+            sec_power = int(sec.get('power', self.power))
+            sec_angles = [float(a) for a in sec.get('angles', [])]
+
+            profile_points = self.resample_profile()
+            if self.axis == "Z":
+                profile_points.reverse()
+
+            # Build the forward-direction pass list for this section.
+            pass_list = []
+            for i, each in enumerate(profile_points):
+                coord = self.calc_coords(each)
+
+                if self.feed_correct == 1 and i >= 1:
+                    linear_dist = abs(self.get_arc(profile_points[i - 1], profile_points[i]))
+                    f = sec_feed * (self.new_increment / linear_dist)
+                    self._logger.debug(
+                        f"linear distance: {linear_dist} at profile_point: {profile_points[i]}"
+                        f" scaled to feed {f}"
+                    )
+                elif self.feed_correct == 2 and i > 1:
+                    f = self.calc_feedrate(sec_feed, each, profile_points[i - 1])
+                else:
+                    f = sec_feed
+
+                pass_list.append(
+                    f"G93 G1 X{coord['X']:0.3f} Z{coord['Z']:0.3f} B{coord['B']:0.3f} F{f:0.1f}"
+                )
+
+            section_data.append({
+                'vMin':          self.vMin,
+                'vMax':          self.vMax,
+                'angles':        sec_angles,
+                'feed':          sec_feed,
+                'power':         sec_power,
+                'pass_list':     pass_list,       # always stored in the forward direction
+                'profile_points': profile_points,
+                # 'forward' tracks which end of the profile we start from on the
+                # next visit to this section.  Flipped after each bidirectional pass.
+                'forward':       True,
+            })
+
+        # Restore global vMin/vMax
+        self.vMin, self.vMax = saved_vMin, saved_vMax
+
+        # ── Map angle → list of section indices that need that angle ──────────
+        angle_to_sections: dict = {}
+        for sec_idx, sec in enumerate(section_data):
+            for angle in sec['angles']:
+                angle_to_sections.setdefault(angle, []).append(sec_idx)
+
+        if not angle_to_sections:
+            self._logger.warning("No laser angles defined in any section; aborting laser job.")
+            return
+
+        # ── Greedy nearest-neighbour angle ordering ───────────────────────────
+        # Start from the smallest angle and always move to the closest remaining
+        # angle.  This minimises total A-axis travel.
+        all_angles = sorted(angle_to_sections.keys())
+        ordered_angles = [all_angles[0]]
+        remaining = set(all_angles[1:])
+        while remaining:
+            nearest = min(remaining, key=lambda a: abs(a - ordered_angles[-1]))
+            ordered_angles.append(nearest)
+            remaining.remove(nearest)
+
+        self._logger.info(f"Laser angle traversal order: {ordered_angles}")
+        command_list.append(f"(Angle traversal order: {ordered_angles})")
+
+        # ── Preamble / initial positioning ────────────────────────────────────
+        first_sec = section_data[angle_to_sections[ordered_angles[0]][0]]
+        self._logger.info(first_sec)
+
+        start = self.calc_coords(first_sec['profile_points'][0])
+
+        command_list.append("G21")
         command_list.append("G90")
         command_list.append("G94")
-        command_list.append(f"G0 {safe}{sign}{self.clearance+self.retract:0.3f}")
-        move_1 = f"G0 X{start['X']:0.4f}"
-        move_2 = f"G0 Z{start['Z']:0.4f}"
-        #include A here
-        b_move = f"G0 A{self.laser_angles[0]} B{start['B']:0.4f}"
-        command_list.append(b_move)
+        command_list.append(f"G0 {safe}{sign}{self.clearance + self.retract:0.3f}")
+        command_list.append(f"G0 A{ordered_angles[0]} B{start['B']:0.4f}")
         if self.axis == "X":
-            command_list.append(move_1)
-            command_list.append(move_2)
+            command_list.append(f"G0 X{start['X']:0.4f}")
+            command_list.append(f"G0 Z{start['Z']:0.4f}")
         else:
-            command_list.append(move_2)
-            command_list.append(move_1)
-
+            command_list.append(f"G0 Z{start['Z']:0.4f}")
+            command_list.append(f"G0 X{start['X']:0.4f}")
         command_list.append(f"G0 X{start['X']:0.4f} Z{start['Z']:0.4f} B{start['B']:0.4f}")
+
+        # Fire laser at weak or full power depending on test mode
         if self.test:
             command_list.append(f"{fire} S{self.weak_laser}")
         else:
-            command_list.append(f"{fire} S{self.power}")
-        
-        #this is to handle A rotations
-        i = -1
-        previous_coord = None
-        previous_feed = None
-        for each in profile_points:
-            
-            i+=1 
-            coord = self.calc_coords(each)
+            command_list.append(f"{fire} S{first_sec['power']}")
 
-            if self.feed_correct == 1:
-                if i >= 1:
-                    linear_distance = abs(self.get_arc(profile_points[i-1],profile_points[i]))
-                    feed = self.feed*(self.new_increment/linear_distance)
-                    self._logger.debug(f"linear distance: {linear_distance} at profile_point: {profile_points[i]} scaled to feed {feed}")
+        # ── Main traversal: iterate over ordered angles ───────────────────────
+        test_done   = False
+        active_power = self.weak_laser if self.test else first_sec['power']
+        last_profile_pt = first_sec['profile_points'][0]
 
-            if self.feed_correct == 2:
-                if i > 1:
-                    feed = self.calc_feedrate(self.feed, each, profile_points[i-1])
+        for line_idx, angle in enumerate(ordered_angles):
+            command_list.append(
+                f"(Starting angle {line_idx + 1} of {len(ordered_angles)}: A={angle})"
+            )
+            # Move A axis to this angle (X/Z not moved yet — each section
+            # rapid-positions itself before its pass begins).
+            command_list.append(f"G0 A{angle}")
+
+            for sec_idx in angle_to_sections[angle]:
+                sec = section_data[sec_idx]
+                command_list.append(
+                    f"(Section vMin={sec['vMin']}, vMax={sec['vMax']}, power={sec['power']})"
+                )
+
+                # ── Power change if this section uses a different S value ──────
+                desired_power = self.weak_laser if self.test else sec['power']
+                if desired_power != active_power:
+                    command_list.append(f"{fire} S{desired_power}")
+                    active_power = desired_power
+
+                # ── Select pass direction ─────────────────────────────────────
+                # 'forward' == True  → profile_points[0] → profile_points[-1]
+                # 'forward' == False → profile_points[-1] → profile_points[0]
+                if sec['forward']:
+                    current_pass = sec['pass_list']
+                    go_pt = sec['profile_points'][0]
                 else:
-                    feed = self.feed
+                    current_pass = sec['pass_list'][::-1]
+                    go_pt = sec['profile_points'][-1]
 
-            pass_list.append(f"G93 G1 X{coord['X']:0.3f} Z{coord['Z']:0.3f} B{coord['B']:0.3f} F{feed:0.1f}")
+                # Rapid to the correct start position for this pass
+                #NEED TO DO SAFE RETRACTS HERE!!!!!
+                dist = abs(self.get_arc(last_profile_pt, go_pt))
+                go_coord = self.calc_coords(go_pt)
+                if dist > 3.0:
+                    go_coord = self.calc_coords(go_pt)
+                    command_list.append(f"G0 {safe}{sign}{self.clearance+self.retract:0.3f}")
+                    move_1 = f"G0 X{go_coord['X']:0.4f}"
+                    move_2 = f"G0 Z{go_coord['Z']:0.4f}"
+                    b_move = f"G0 B{go_coord['B']:0.4f}"
+                    command_list.append(b_move)
+                    if self.axis == "X":
+                        command_list.append(move_1)
+                        command_list.append(move_2)
+                    else:
+                        command_list.append(move_2)
+                        command_list.append(move_1)
+                else:
+                    command_list.append(
+                        f"G0 X{go_coord['X']:0.4f} Z{go_coord['Z']:0.4f} B{go_coord['B']:0.4f}"
+                    )
+                # Execute the section pass
+                command_list.extend(current_pass)
+                last_profile_pt = sec['profile_points'][-1] if sec['forward'] else sec['profile_points'][0]
 
-            previous_coord = coord
-            previous_feed = feed
- 
-        num_lines = len(self.laser_angles)
-        i = 1
-        line_idx = 0
-        self._logger.info(self.laser_angles[line_idx])
-        while line_idx < num_lines:
-            thisangle = self.laser_angles[line_idx]
-            command_list.append(f"(Starting line {line_idx+1} of {num_lines} at A={thisangle})")
-            command_list.append(f"G0 A{thisangle}")
-            command_list.extend(pass_list)
-            if not self.laser_uni:
-                pass_list = pass_list[::-1]
-            else:
-                command_list.append(f"G0 {safe}{sign}{self.clearance+self.retract:0.3f}")
-                command_list.append(f"G0 B{start['B']:0.4f}")
-                command_list.append(f"G0 X{start['X']:0.4f}")
-                command_list.append(f"G0 Z{start['Z']:0.4f}")
-            if self.test and i == 1:
-                command_list.append("G4 P2")
-                command_list.append("(test pass)")
-                command_list.extend(pass_list)
-                command_list.append("G4 P2")
-                command_list.append("M0")
-                command_list.append(f"{fire} S{self.power}")
+                # ── Test-mode handling (first section of first angle only) ─────
+                if self.test and not test_done:
+                    # Reverse pass at weak power so the operator can verify the path,
+                    # then pause (M0) before committing to full power.
+                    reverse_pass = current_pass[::-1]
+                    command_list.append("G4 P2")
+                    command_list.append("(test pass — inspect path, then resume)")
+                    command_list.extend(reverse_pass)
+                    command_list.append("G4 P2")
+                    command_list.append("M0")
+                    # Switch to full power and re-run the same pass
+                    command_list.append(f"{fire} S{sec['power']}")
+                    active_power = sec['power']
+                    command_list.extend(current_pass)
+                    test_done = True
+
+                # ── Prepare direction / position for the next visit ───────────
                 if not self.laser_uni:
-                    pass_list = pass_list[::-1]
-                command_list.extend(pass_list)
-                if not self.laser_uni:
-                    pass_list = pass_list[::-1]
-            #rotate
-            #command_list.append("G0 A0") #return A to 0 first
-            #next_angle = self.laser_angles[line_idx + 1] if line_idx + 1 < num_lines else 360.0
-            #command_list.append(f"G0 A{next_angle:0.3f}")
-            #command_list.append("G92 A0")
-            line_idx += 1
-            i += 1
+                    # Bidirectional: flip direction so the next visit at this
+                    # angle starts from the opposite end — no wasted rapid move.
+                    sec['forward'] = not sec['forward']
+                else:
+                    # Unidirectional: retract and return to the section's start
+                    # so every pass begins from the same end.
+                    command_list.append(f"G0 {safe}{sign}{self.clearance + self.retract:0.3f}")
+                    go_start = self.calc_coords(sec['profile_points'][0])
+                    command_list.append(f"G0 B{go_start['B']:0.4f}")
+                    if self.axis == "X":
+                        command_list.append(f"G0 X{go_start['X']:0.4f}")
+                        command_list.append(f"G0 Z{go_start['Z']:0.4f}")
+                    else:
+                        command_list.append(f"G0 Z{go_start['Z']:0.4f}")
+                        command_list.append(f"G0 X{go_start['X']:0.4f}")
+                    last_profile_pt = sec['profile_points'][0]
         command_list.append("G94")
         command_list.append("M5")
         command_list.append("M30")
 
         output_name = self.name.removesuffix(".txt")
-        output_name = f"Laser_S{self.segments}_P{self.power}_"+output_name+".gcode"
+        output_name = f"Laser_S{self.segments}_P{self.power}_" + output_name + ".gcode"
         path_on_disk = "{}/{}".format(self._settings.getBaseFolder("watched"), output_name)
 
-        with open(path_on_disk,"w") as newfile:
+        with open(path_on_disk, "w") as newfile:
             for line in command_list:
                 newfile.write(f"\n{line}")
 
         self.send_le_clear()
-        self._plugin_manager.send_plugin_message('latheengraver',  dict(type='filerefresh'))
+        self._plugin_manager.send_plugin_message('latheengraver', dict(type='filerefresh'))
 
     def generate_facet_job(self):
         self._logger.info("Starting Facet job")
@@ -1516,13 +1634,16 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             self.smooth_points = int(data["smoothing"])
             if self.segments == 0:
                 self.segments = 1
-            self.vMax = float(data["vMax"])
-            self.vMin = float(data["vMin"])
+            self.vMax = data.get("vMax")
+            self.vMin = data.get("vMin")
             self.feed = int(data["feed"])
             self.risky_clearance = bool(data["risky"])
             self.conventional = bool(data["conventional"])
             self.extra_depth = float(data["extra_depth"])
-
+            if self.vMax is not None:
+                self.vMax = float(self.vMax)
+            if self.vMin is not None:
+                self.vMin = float(self.vMin)    
             #must sort data first
             for each in self.plot_data:
                 for k, v in each.items():
@@ -1543,13 +1664,10 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     self.create_a_spline()
 
             if self.mode == "laser":
+                self.laser_sections = None
                 self.test = bool(data["test"])
                 self.power = int(data["power"])
-                angles = data.get("angles")
-                if angles:
-                    angles = list(set(angles))
-                    self.laser_angles  = sorted(float(a) for a in angles)
-                    self._logger.info(self.laser_angles)
+                self.laser_sections = data.get("laser_sections")
                 self.generate_laser_job()
                 return
 

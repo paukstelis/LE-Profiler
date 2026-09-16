@@ -371,7 +371,7 @@ $(function() {
             var traces = angles.map(function(a) {
                 return {
                     type: "scatterpolar",
-                    r: [0.25, workOuter],
+                    r: [0.25, workOuter-(SHELL_W/2)],
                     theta: [a, a],
                     mode: "lines",
                     line: { color: "black", width: 1.5 },
@@ -543,6 +543,8 @@ $(function() {
                 id: layerIndex + 1,
                 vMin: self.vMin,
                 vMax: self.vMax,
+                feed: ko.unwrap(self.feed),   // plain number, not observable
+                power: ko.unwrap(self.power),  // plain number, not observable
                 angles: self.polarAngles().slice(),   // snapshot
                 color: color
             });
@@ -740,7 +742,9 @@ $(function() {
                     vMin:   layer.vMin,
                     vMax:   layer.vMax,
                     angles: layer.angles,
-                    color:  layer.color
+                    color:  layer.color,
+                    feed:   layer.feed,
+                    power:  layer.power,
                 };
             });
 
