@@ -565,6 +565,29 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             print(f"{L/P} or {360*L/P} degrees max")
         return P
     
+    def calculate_dynamic_clearance(self, last_profile_pt, go_pt):
+        """
+        Calculate the dynamic clearance needed between the current position and the next position.
+        Ensures safe retracts while minimizing unnecessary movement, including reverse passes.
+        """
+        max_clearance = self.clearance  # Start with the default clearance
+        primary_axis = self.axis  # The primary axis of movement (e.g., "X" or "Z")
+        secondary_axis = "Z" if primary_axis == "X" else "X"  # The non-primary axis
+
+        # Determine the range of the primary axis to handle both forward and reverse passes
+        start = min(last_profile_pt[primary_axis], go_pt[primary_axis])
+        end = max(last_profile_pt[primary_axis], go_pt[primary_axis])
+
+        # Iterate through the profile points and calculate coordinates dynamically
+        for pt in self.profile_points:
+            if start <= pt[primary_axis] <= end:  # Check if the point is within the range
+                coords = self.calc_coords(pt)  # Calculate X and Z dynamically
+                max_clearance = max(max_clearance, coords[secondary_axis])
+
+        # Add retract distance to the maximum clearance
+        return max_clearance + self.retract
+
+
     def generate_laser_job(self):
         data = dict(title="Writing Gcode...", text="Laser job is writing.", delay=60000, type="info")
         self.send_le_message(data)
@@ -748,13 +771,17 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 #NEED TO DO SAFE RETRACTS HERE!!!!!
                 dist = abs(self.get_arc(last_profile_pt, go_pt))
                 go_coord = self.calc_coords(go_pt)
+
                 if dist > 3.0:
-                    go_coord = self.calc_coords(go_pt)
-                    command_list.append(f"G0 {safe}{sign}{self.clearance+self.retract:0.3f}")
+                    # Calculate dynamic clearance
+                    dynamic_clearance = self.calculate_dynamic_clearance(self, last_profile_pt, go_pt)
+                    command_list.append(f"G0 {safe}{sign}{dynamic_clearance:0.3f}")
+
                     move_1 = f"G0 X{go_coord['X']:0.4f}"
                     move_2 = f"G0 Z{go_coord['Z']:0.4f}"
                     b_move = f"G0 B{go_coord['B']:0.4f}"
                     command_list.append(b_move)
+
                     if self.axis == "X":
                         command_list.append(move_1)
                         command_list.append(move_2)
