@@ -261,6 +261,7 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 self.ind_v.append(float(each["z"]))
                 self.dep_v.append(float(each["x"]))
 
+        self._logger.info(f"DEBUGGING create_spline: {self.ind_v}")
         self.spline = self.splinetype(self.ind_v, self.dep_v)
 
     def create_a_spline(self):
@@ -566,26 +567,28 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         return P
     
     def calculate_dynamic_clearance(self, last_profile_pt, go_pt):
-        """
-        Calculate the dynamic clearance needed between the current position and the next position.
-        Ensures safe retracts while minimizing unnecessary movement, including reverse passes.
-        """
-        max_clearance = self.clearance  # Start with the default clearance
+        
         primary_axis = self.axis  # The primary axis of movement (e.g., "X" or "Z")
         secondary_axis = "Z" if primary_axis == "X" else "X"  # The non-primary axis
 
         # Determine the range of the primary axis to handle both forward and reverse passes
-        start = min(last_profile_pt[primary_axis], go_pt[primary_axis])
-        end = max(last_profile_pt[primary_axis], go_pt[primary_axis])
-
-        # Iterate through the profile points and calculate coordinates dynamically
-        for pt in self.profile_points:
-            if start <= pt[primary_axis] <= end:  # Check if the point is within the range
+        start = min(last_profile_pt, go_pt)
+        end = max(last_profile_pt, go_pt)
+        
+        start_secondary = self.calc_coords(start)[secondary_axis]
+        end_secondary = self.calc_coords(end)[secondary_axis]
+        self._logger.info(f"start: {start}, coord: {start_secondary}, end: {end}, coord: {end_secondary}")
+        max_clearance = -1000
+        for pt in self.ind_v:
+            if start <= pt <= end:  
                 coords = self.calc_coords(pt)  # Calculate X and Z dynamically
-                max_clearance = max(max_clearance, coords[secondary_axis])
-
+                clearance = max(start_secondary, end_secondary, coords[secondary_axis])
+                #self._logger.info(f"point: {pt}, clearance: {max_clearance}")
+                if clearance > max_clearance:
+                    max_clearance = clearance
+        self._logger.info(f"calc max: {max_clearance}")
         # Add retract distance to the maximum clearance
-        return max_clearance + self.retract
+        return max_clearance
 
 
     def generate_laser_job(self):
@@ -608,16 +611,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
         command_list.append(f"(B-angle smoothing points: {self.smooth_points})")
 
         sign, safe = self.safe_retract()
-
-        # ── Normalize input into a uniform list of section dicts ──────────────
-        # Each section dict must have:
-        #   vMin, vMax       : profile domain for this section
-        #   angles           : list of A-axis angles that apply to this section
-        #   feed             : laser feed rate (mm/min)
-        #   power            : laser S-value
-        #
-        # If laser_sections is not supplied, fall back to the legacy single-section
-        # path using self.vMin/vMax, self.laser_angles, self.feed, self.power.
         if self.laser_sections:
             raw_sections = self.laser_sections
         else:
@@ -629,9 +622,6 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                 'power':  self.power,
             }]
 
-        # ── Build per-section profile points and forward pass lists ───────────
-        # We temporarily swap self.vMin/vMax so resample_profile() works correctly
-        # for each section's domain.
         saved_vMin, saved_vMax = self.vMin, self.vMax
         section_data = []
 
@@ -741,9 +731,9 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             command_list.append(
                 f"(Starting angle {line_idx + 1} of {len(ordered_angles)}: A={angle})"
             )
-            # Move A axis to this angle (X/Z not moved yet — each section
-            # rapid-positions itself before its pass begins).
             command_list.append(f"G0 A{angle}")
+
+            visited_this_angle = []  # track sections processed at this angle
 
             for sec_idx in angle_to_sections[angle]:
                 sec = section_data[sec_idx]
@@ -751,15 +741,11 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     f"(Section vMin={sec['vMin']}, vMax={sec['vMax']}, power={sec['power']})"
                 )
 
-                # ── Power change if this section uses a different S value ──────
                 desired_power = self.weak_laser if self.test else sec['power']
                 if desired_power != active_power:
                     command_list.append(f"{fire} S{desired_power}")
                     active_power = desired_power
 
-                # ── Select pass direction ─────────────────────────────────────
-                # 'forward' == True  → profile_points[0] → profile_points[-1]
-                # 'forward' == False → profile_points[-1] → profile_points[0]
                 if sec['forward']:
                     current_pass = sec['pass_list']
                     go_pt = sec['profile_points'][0]
@@ -767,14 +753,11 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     current_pass = sec['pass_list'][::-1]
                     go_pt = sec['profile_points'][-1]
 
-                # Rapid to the correct start position for this pass
-                #NEED TO DO SAFE RETRACTS HERE!!!!!
                 dist = abs(self.get_arc(last_profile_pt, go_pt))
                 go_coord = self.calc_coords(go_pt)
 
                 if dist > 3.0:
-                    # Calculate dynamic clearance
-                    dynamic_clearance = self.calculate_dynamic_clearance(self, last_profile_pt, go_pt)
+                    dynamic_clearance = self.calculate_dynamic_clearance(last_profile_pt, go_pt)
                     command_list.append(f"G0 {safe}{sign}{dynamic_clearance:0.3f}")
 
                     move_1 = f"G0 X{go_coord['X']:0.4f}"
@@ -792,34 +775,24 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                     command_list.append(
                         f"G0 X{go_coord['X']:0.4f} Z{go_coord['Z']:0.4f} B{go_coord['B']:0.4f}"
                     )
-                # Execute the section pass
+
                 command_list.extend(current_pass)
                 last_profile_pt = sec['profile_points'][-1] if sec['forward'] else sec['profile_points'][0]
 
-                # ── Test-mode handling (first section of first angle only) ─────
                 if self.test and not test_done:
-                    # Reverse pass at weak power so the operator can verify the path,
-                    # then pause (M0) before committing to full power.
                     reverse_pass = current_pass[::-1]
                     command_list.append("G4 P2")
                     command_list.append("(test pass — inspect path, then resume)")
                     command_list.extend(reverse_pass)
                     command_list.append("G4 P2")
                     command_list.append("M0")
-                    # Switch to full power and re-run the same pass
                     command_list.append(f"{fire} S{sec['power']}")
                     active_power = sec['power']
                     command_list.extend(current_pass)
                     test_done = True
 
-                # ── Prepare direction / position for the next visit ───────────
-                if not self.laser_uni:
-                    # Bidirectional: flip direction so the next visit at this
-                    # angle starts from the opposite end — no wasted rapid move.
-                    sec['forward'] = not sec['forward']
-                else:
+                if self.laser_uni:
                     # Unidirectional: retract and return to the section's start
-                    # so every pass begins from the same end.
                     command_list.append(f"G0 {safe}{sign}{self.clearance + self.retract:0.3f}")
                     go_start = self.calc_coords(sec['profile_points'][0])
                     command_list.append(f"G0 B{go_start['B']:0.4f}")
@@ -830,6 +803,16 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
                         command_list.append(f"G0 Z{go_start['Z']:0.4f}")
                         command_list.append(f"G0 X{go_start['X']:0.4f}")
                     last_profile_pt = sec['profile_points'][0]
+                else:
+                    # Defer the direction flip until every section at this
+                    # angle has completed its pass.
+                    visited_this_angle.append(sec)
+
+            # All lines for this angle are done — now flip direction for the
+            # next time each of these sections is visited (at a later angle).
+            for sec in visited_this_angle:
+                sec['forward'] = not sec['forward']
+
         command_list.append("G94")
         command_list.append("M5")
         command_list.append("M30")
