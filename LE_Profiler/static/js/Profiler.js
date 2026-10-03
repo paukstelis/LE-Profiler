@@ -6,8 +6,8 @@ $(function() {
         self.is_printing = ko.observable(false);
         self.xValues = [];
         self.zValues = [];
-        self.vMax = null;
-        self.vMin = null;
+        self.vMax = ko.observable(null);
+        self.vMin = ko.observable(null);
         self.target_position = []; 
         self.smoothedZValues = [];
         self.annotations = [];
@@ -195,7 +195,7 @@ $(function() {
         });
 
         self.do_distance = function() {
-            if (!self.isZFile && self.mode() === "wrap" && self.vMax != null && self.vMin != null)  {
+            if (!self.isZFile && self.mode() === "wrap" && self.vMax() != null && self.vMin() != null)  {
                 self.pd = self.get_pd();
                 return true;
             }
@@ -302,28 +302,28 @@ $(function() {
                             self.xValues = self.xValues.map(x => x - clickedX);
                             self.zValues = self.zValues.map(z => z - clickedZ);
                             self.annotations = [];
-                            self.vMin = null;
-                            self.vMax = null;
+                            self.vMin(null);
+                            self.vMax(null);
                             self.target_position = null;
                             plotProfile(self.isZFile);
                         } else if (self.isZFile) {
                             if (self.markerAction() == "Max") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Max'));
-                                if (self.vMin != null && Number(clickedZ) < Number(self.vMin)) {
+                                if (self.vMin != null && Number(clickedZ) < Number(self.vMin())) {
                                     alert("Max must be greater than Min");
                                     return;
                                 }
-                                self.vMax = Number(clickedZ);
-                                self.annotations.push({ x: clickedX, y: clickedZ, xref: 'x', yref: 'y', text: 'Max: '+self.vMax, showarrow: true, arrowhead: 2, ax: 30, ay: -30 });
+                                self.vMax(Number(clickedZ));
+                                self.annotations.push({ x: clickedX, y: clickedZ, xref: 'x', yref: 'y', text: 'Max: '+self.vMax(), showarrow: true, arrowhead: 2, ax: 30, ay: -30 });
                                 plotProfile(true);
                             } else if (self.markerAction() === "Min") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Min'));
-                                if (self.vMax != null && Number(clickedZ) > Number(self.vMax)) {
+                                if (self.vMax() != null && Number(clickedZ) > Number(self.vMax())) {
                                     alert("Min must be less than Max");
                                     return;
                                 }
-                                self.vMin = Number(clickedZ);
-                                self.annotations.push({ x: clickedX, y: clickedZ, xref: 'x', yref: 'y', text: 'Min: '+self.vMin, showarrow: true, arrowhead: 2, ax: -30, ay: -30 });
+                                self.vMin(Number(clickedZ));
+                                self.annotations.push({ x: clickedX, y: clickedZ, xref: 'x', yref: 'y', text: 'Min: '+self.vMin(), showarrow: true, arrowhead: 2, ax: -30, ay: -30 });
                                 plotProfile(true);
                             } else if (self.markerAction() === "targetPoint") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Target'));
@@ -341,21 +341,21 @@ $(function() {
                         } else if (self.isXFile) {
                             if (self.markerAction() === "Max") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Max'));
-                                if (self.vMin && clickedX < self.vMin) {
+                                if (self.vMin && clickedX < self.vMin()) {
                                     alert("Max must be greater than Min");
                                     return;
                                 }
-                                self.vMax = clickedX;
-                                self.annotations.push({ x: clickedX, y: clickedZ, xref: 'x', yref: 'y', text: 'Max: '+self.vMax, showarrow: true, arrowhead: 2, ax: 30, ay: -30 });
+                                self.vMax(clickedX);
+                                self.annotations.push({ x: clickedX, y: clickedZ, xref: 'x', yref: 'y', text: 'Max: '+self.vMax(), showarrow: true, arrowhead: 2, ax: 30, ay: -30 });
                                 if (!self.do_distance()) { plotProfile(false); }
                             } else if (self.markerAction() === "Min") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Min'));
-                                if (self.vMax && clickedX > self.vMax) {
+                                if (self.vMax() && clickedX > self.vMax()) {
                                     alert("Min must be less than Max");
                                     return;
                                 }
-                                self.vMin = clickedX;
-                                self.annotations.push({ x: clickedX, y: clickedZ, xref: 'x', yref: 'y', text: 'Min: '+self.vMin, showarrow: true, arrowhead: 2, ax: -30, ay: -30 });
+                                self.vMin(clickedX);
+                                self.annotations.push({ x: clickedX, y: clickedZ, xref: 'x', yref: 'y', text: 'Min: '+self.vMin(), showarrow: true, arrowhead: 2, ax: -30, ay: -30 });
                                 if (!self.do_distance()) { plotProfile(false); }
                             } else if (self.markerAction() === "targetPoint") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Target'));
@@ -578,8 +578,8 @@ $(function() {
          * inner ring of the polar plot.
          */
         self.commitLayer = function() {
-            if (self.vMin === null || self.vMin === undefined ||
-                self.vMax === null || self.vMax === undefined) {
+            if (self.vMin() === null || self.vMin() === undefined ||
+                self.vMax() === null || self.vMax() === undefined) {
                 alert("Set Min and Max before committing a layer.");
                 return;
             }
@@ -593,8 +593,8 @@ $(function() {
 
             self.laser_sections.push({
                 id: layerIndex + 1,
-                vMin: self.vMin,
-                vMax: self.vMax,
+                vMin: self.vMin(),
+                vMax: self.vMax(),
                 feed: ko.unwrap(self.feed),   // plain number, not observable
                 power: ko.unwrap(self.power),  // plain number, not observable
                 angles: self.polarAngles().slice(),   // snapshot
@@ -602,8 +602,8 @@ $(function() {
             });
 
             // Clear Min/Max annotations and working values for the next layer
-            self.vMin = null;
-            self.vMax = null;
+            self.vMin(null);
+            self.vMax(null);
             self.annotations = self.annotations.filter(
                 a => !a.text.startsWith('Min') && !a.text.startsWith('Max')
             );
@@ -658,8 +658,8 @@ $(function() {
             else              { $(".zscan").hide(); }
 
             self.annotations = [];
-            self.vMax = null;
-            self.vMin = null;
+            self.vMax(null);
+            self.vMin(null);
             self.target_position = null;
 
             self.createGraph(filePath);
@@ -681,8 +681,8 @@ $(function() {
                 var x = parseFloat(self.xValues[i]);
                 var z = parseFloat(self.zValues[i]);
                 var rangeVal = self.isZFile ? z : x;
-                if (self.vMin != null && rangeVal < self.vMin) continue;
-                if (self.vMax != null && rangeVal > self.vMax) continue;
+                if (self.vMin() != null && rangeVal < self.vMin()) continue;
+                if (self.vMax() != null && rangeVal > self.vMax()) continue;
                 pointsInRange.push({ x: x.toFixed(3), z: z.toFixed(3) });
             }
             return pointsInRange;
@@ -736,7 +736,7 @@ $(function() {
         };
 
         self.get_pd = function() {
-            OctoPrint.simpleApiCommand("profiler", "get_arc_length", { vMin: self.vMin, vMax: self.vMax })
+            OctoPrint.simpleApiCommand("profiler", "get_arc_length", { vMin: self.vMin(), vMax: self.vMax() })
                 .done(function() { console.log("Info for arc length sent"); })
                 .fail(function() { console.error("Did not get arc length"); });
         };
@@ -755,8 +755,8 @@ $(function() {
                     return;
                 }
             } else {
-                if (self.vMax === null || self.vMax === undefined ||
-                    self.vMin === null || self.vMin === undefined) {
+                if (self.vMax() === null || self.vMax() === undefined ||
+                    self.vMin() === null || self.vMin() === undefined) {
                     alert("Min. and Max. values must be set.");
                     return;
                 }
@@ -811,8 +811,8 @@ $(function() {
                 feed: self.feed(),
                 test: self.test(),
                 segments: self.segments(),
-                vMax: self.vMax,
-                vMin: self.vMin,
+                vMax: self.vMax(),
+                vMin: self.vMin(),
                 laser_sections: serializedLayers,    // ← multi-layer payload
                 filename: self.selectedGCodeFile,
                 svgfile: self.selectedSVGFile,
@@ -860,8 +860,8 @@ $(function() {
             }
             
             if (position === "zero") { self.target_position = 0.0; }
-            if (position === "min") { self.target_position = self.vMin; }
-            if (position === "max") { self.target_position = self.vMax; }
+            if (position === "min") { self.target_position = self.vMin(); }
+            if (position === "max") { self.target_position = self.vMax(); }
             if (position === "target") { console.log("Going to target position: " + self.target_position); }
             if (self.target_position === null || self.target_position === undefined) {
                 alert("The movement position must be set.");

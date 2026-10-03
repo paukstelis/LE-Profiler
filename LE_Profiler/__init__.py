@@ -1774,11 +1774,8 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             if getB:
                 self._logger.info(f"Calculated B: {coord['B']}")
                 #return X, Z, B as an array
-
                 return flask.jsonify(X=round(coord['X'],2), Z=round(coord['Z'],2), B=round(coord['B'],2))
-                #msg = dict(title="Coordinates at target", text="Calculated B: {0:0.2f}<br>Calculated X: {1:0.2f}<br>Calculated Z: {2:0.2f}".format(coord['B'], coord['X'], coord['Z']), type="info", delay=10000)
-                #self.send_le_message(msg)
-                return
+
             else:
                 b_move  = (f"G0 B{coord['B']:0.4f}")
                 move_1 = (f"G0 X{coord['X']:0.4f}")
