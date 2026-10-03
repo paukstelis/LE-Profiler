@@ -86,7 +86,7 @@
             </div>
         </div>
         <!-- ── Custom Line Layout (laser only) ──────────────────── -->
-        <div class="control-group laser" style="display:none;">
+        <div class="control-group mode-section laser">
             <label class="control-label">Custom Line Layout</label>
             <div class="controls" style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
                 <button id="openPolarEditor" class="btn"
@@ -96,11 +96,7 @@
             </div>
         </div>
 
-        <!-- ══════════════════════════════════════════════════════════
-             LASER — Committed Layers Panel
-             Sits below both columns, visible only in laser mode.
-        ═══════════════════════════════════════════════════════════ -->
-        <div class="mode-section laser" style="display:none; clear:both; margin-top:12px;">
+        <div class="mode-section laser" style="clear:both; margin-top:12px;">
 
             <hr style="margin: 6px 0;">
             <strong>Committed Layers</strong>
@@ -142,7 +138,7 @@
         </div><!-- /laser layers panel -->
 
         <!-- ── Polar editor (laser only) ────────────────────────── -->
-        <div id="polarEditorModal" class="laser" style="display:none; width:100%;">
+        <div id="polarEditorModal" class="mode-section laser" style="width:100%;">
             <div id="polarPlot"></div>
             <div class="controls" style="margin-top:4px;">
                 <label><input type="radio" name="polarMode" value="add" checked> Add Line</label>
