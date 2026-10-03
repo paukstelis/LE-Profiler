@@ -10,6 +10,7 @@ import re
 import os
 import math
 import time
+import flask
 from . import G_Code_Rip as G_Code_Rip
 from svgpathtools import svg2paths2
 from scipy.interpolate import interp1d
@@ -1772,8 +1773,11 @@ class ProfilerPlugin(octoprint.plugin.SettingsPlugin,
             coord = self.calc_coords(self.target)
             if getB:
                 self._logger.info(f"Calculated B: {coord['B']}")
-                msg = dict(title="Coordinates at target", text="Calculated B: {0:0.2f}<br>Calculated X: {1:0.2f}<br>Calculated Z: {2:0.2f}".format(coord['B'], coord['X'], coord['Z']), type="info", delay=10000)
-                self.send_le_message(msg)
+                #return X, Z, B as an array
+
+                return flask.jsonify(X=round(coord['X'],2), Z=round(coord['Z'],2), B=round(coord['B'],2))
+                #msg = dict(title="Coordinates at target", text="Calculated B: {0:0.2f}<br>Calculated X: {1:0.2f}<br>Calculated Z: {2:0.2f}".format(coord['B'], coord['X'], coord['Z']), type="info", delay=10000)
+                #self.send_le_message(msg)
                 return
             else:
                 b_move  = (f"G0 B{coord['B']:0.4f}")

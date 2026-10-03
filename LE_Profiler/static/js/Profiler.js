@@ -2,6 +2,8 @@ $(function() {
     function ProfilerViewModel(parameters) {
         var self = this;
         self.global_settings = parameters[1];
+        self.is_operational = ko.observable(false);
+        self.is_printing = ko.observable(false);
         self.xValues = [];
         self.zValues = [];
         self.vMax = null;
@@ -90,6 +92,19 @@ $(function() {
             });
         }
 
+        self._processStateData = function(data) {
+            self.is_printing(data.flags.printing);
+            self.is_operational(data.flags.operational);
+
+            if (self.is_printing() && !self.running()) {
+                self.available(false);
+            }
+
+            if (!self.is_printing() || self.running()) {
+                self.available(true);
+            }
+        };
+
         self.onModeChange = function () {
             const mode = self.mode();
             toggleSection(mode);
@@ -162,6 +177,8 @@ $(function() {
 
         self.onBeforeBinding = function () {
             self.settings = self.global_settings.settings.plugins.profiler;
+            self.is_printing(self.global_settings.settings.plugins.latheengraver.is_printing());
+            self.is_operational(self.global_settings.settings.plugins.latheengraver.is_operational());
             self.fetchProfileFiles();
             $(".laser").hide();
             $(".wrap").hide();
@@ -181,6 +198,34 @@ $(function() {
             if (!self.isZFile && self.mode() === "wrap" && self.vMax != null && self.vMin != null)  {
                 self.pd = self.get_pd();
                 return true;
+            }
+        };
+
+        self.requestTargetCoords = async function() {
+            if (!self.tool_length) { return null; }
+            var clearance;
+            if (self.isZFile) { clearance = Math.max(...self.xValues); }
+            else              { clearance = Math.max(...self.zValues); }
+            var plot = self.getPointsInRange();
+            var data = {
+                plot_data: plot,
+                target: self.target_position,
+                tool_length: self.tool_length(),
+                max_B: self.max_B(),
+                min_B: self.min_B(),
+                clear: clearance,
+                side: self.side(),
+                mode: "target",
+                smoothing: self.smoothing(),
+                getB: true,
+            };
+            try {
+                var response = await OctoPrint.simpleApiCommand("profiler", "go_to_position", data);
+                console.log("Requested B for target position.", response);
+                return response;
+            } catch (err) {
+                console.error("Failed to get B for target position", err);
+                return null;
             }
         };
 
@@ -248,7 +293,7 @@ $(function() {
 
             Plotly.newPlot('profilePlot', [trace], layout, config)
             .then(function() {
-                document.getElementById('profilePlot').on('plotly_click', function (data) {
+                document.getElementById('profilePlot').on('plotly_click', async function (data) {
                     if (data && data.points && data.points.length > 0) {
                         var clickedPoint = data.points[0];
                         var clickedX = clickedPoint.x;
@@ -283,6 +328,7 @@ $(function() {
                             } else if (self.markerAction() === "targetPoint") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Target'));
                                 self.target_position = clickedZ;
+                                calc_coords = self.requestTargetCoords();
                                 self.annotations.push({ x: clickedX, y: clickedZ, xref: 'x', yref: 'y', text: 'Target: '+self.target_position, showarrow: true, arrowhead: 2, ax: 20, ay: 20 });
                                 plotProfile(true);
                             } else if (self.markerAction() === "refset") {
@@ -314,7 +360,13 @@ $(function() {
                             } else if (self.markerAction() === "targetPoint") {
                                 self.annotations = self.annotations.filter(a => !a.text.startsWith('Target'));
                                 self.target_position = clickedX;
-                                self.annotations.push({ x: clickedX, y: clickedZ, xref: 'x', yref: 'y', text: 'Target: '+self.target_position, showarrow: true, arrowhead: 2, ax: 20, ay: 20 });
+                                var calc_coords = await self.requestTargetCoords();
+                                self.annotations.push({ x: clickedX,
+                                                        y: clickedZ,
+                                                        xref: 'x',
+                                                        yref: 'y',
+                                                        text: 'Target: '+self.target_position+'<br>Calc. X: '+calc_coords.X+'<br>Calc. Z: '+calc_coords.Z+'<br>Calc. B: '+calc_coords.B,
+                                                        showarrow: true, arrowhead: 2, ax: 45, ay: 45 });
                                 plotProfile(false);
                             } else if (self.markerAction() === "refset") {
                                 var offset = getSmartAnnotationOffset(clickedX, clickedZ, self.xValues, self.zValues);
