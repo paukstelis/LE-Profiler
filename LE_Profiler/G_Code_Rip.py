@@ -1254,7 +1254,19 @@ class G_Code_Rip:
         self._interp_z     = interp1d(x_arr, z_arr,           kind="linear", bounds_error=False, fill_value=(z_arr[0],     z_arr[-1]))
         self._interp_slope = interp1d(x_arr, smoothed_slopes, kind="linear", bounds_error=False, fill_value=fill)
 
-        #limitation is that we don't know A values in this method
+        # Pre-calculate singleB as B-angle at X-midpoint of profile
+        if singleB:
+            import math
+            mid_x = (x_coords[0] + x_coords[-1]) / 2.0
+            mid_slope = float(self._interp_slope(mid_x))
+            mid_normal = math.atan2(mid_slope, 1) + math.pi / 2
+            mid_b = math.degrees(mid_normal) - 90.0  # back to b_angle convention
+            mid_b = max(minB, min(maxB, mid_b))
+            self.currentB = mid_b
+            if plugin:
+                plugin._logger.info(f"singleB: midpoint X={mid_x:.3f}, slope={mid_slope:.4f}, B={mid_b:.3f}")
+        else:
+            self.currentB = None
 
         mvtype = -1  # G0 (Rapid), G1 (linear), G2 (clockwise arc) or G3 (counterclockwise arc).
         passthru = ""
@@ -1313,8 +1325,9 @@ class G_Code_Rip:
                 pos = self.coordinate_modification(POS)
                 pos_last = self.coordinate_modification(POS_LAST)
 
-                if self.singleB and not self.currentB and mvtype == 1: #B of the first cutting move is our B for that object
-                    self.currentB = pos[3]
+
+                #if self.singleB and not self.currentB and mvtype == 1: #B of the first cutting move is our B for that object
+                #    self.currentB = pos[3]
 
                 if mvtype == 0:
                     out.append( [mvtype,pos_last,pos] )
