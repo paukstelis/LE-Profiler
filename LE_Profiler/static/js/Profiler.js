@@ -177,8 +177,8 @@ $(function() {
 
         self.onBeforeBinding = function () {
             self.settings = self.global_settings.settings.plugins.profiler;
-            self.is_printing(self.global_settings.settings.plugins.latheengraver.is_printing());
-            self.is_operational(self.global_settings.settings.plugins.latheengraver.is_operational());
+            //self.is_printing(self.global_settings.settings.plugins.latheengraver.is_printing());
+            //self.is_operational(self.global_settings.settings.plugins.latheengraver.is_operational());
             self.fetchProfileFiles();
             $(".laser").hide();
             $(".wrap").hide();
@@ -186,8 +186,30 @@ $(function() {
             self.smoothing = self.settings.smooth_points;
             self.increment = self.settings.increment;
             self.exp = self.settings.exp();
-        };
 
+            self._bindLatheEngraverObservables();
+        };
+        
+        self._bindLatheEngraverObservables = function () {
+            var plugins = self.global_settings.settings.plugins;
+            var le = plugins ? plugins.latheengraver : null;
+
+            if (le && le.is_printing && le.is_operational) {
+                // Initial sync
+                self.is_printing(le.is_printing());
+                self.is_operational(le.is_operational());
+
+                // Keep in sync going forward
+                le.is_printing.subscribe(function(val) { self.is_printing(val); });
+                le.is_operational.subscribe(function(val) { self.is_operational(val); });
+
+                console.log("Profiler: bound to latheengraver observables.");
+            } else {
+                // Not yet available — try again shortly.
+                setTimeout(self._bindLatheEngraverObservables, 200);
+            }
+        };
+        
         $("#modeSelect").on("change", function () {
             self.mode($(this).val());
             self.onModeChange();
@@ -721,6 +743,40 @@ $(function() {
                 self.polarAngles(data.angles);
                 drawPolarPlot();
             }
+        };
+
+        self.toggleWeak = function() {
+            OctoPrint.simpleApiCommand("latheengraver", "toggleWeak")
+                .done(
+                    function(data) {
+                        // Update button in main window
+                        var btn = document.getElementById("grblLaserButton");
+                        if (btn) {
+                            btn.innerHTML = btn.innerHTML.replace(btn.innerText, data["res"]);
+                        }
+                        // Update button in pop-out window if it exists
+                        if (self.popoutWindow && !self.popoutWindow.closed) {
+                            var popBtn = self.popoutWindow.document.getElementById("grblLaserButton");
+                            if (popBtn) {
+                                popBtn.innerHTML = popBtn.innerHTML.replace(popBtn.innerText, data["res"]);
+                            }
+                        }
+                    }
+                )
+                .fail(
+                    function(data, status) {
+                        new PNotify({
+                            title: "Laser action failed!",
+                            text: data.responseText,
+                            hide: true,
+                            buttons: {
+                                sticker: false,
+                                closer: true
+                            },
+                            type: "error"
+                        })
+                    }
+                );
         };
 
         self.createGraph = function(filePath) {
