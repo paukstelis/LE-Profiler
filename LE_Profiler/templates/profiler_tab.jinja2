@@ -82,7 +82,7 @@
                 <button style="margin-right: 10px;" class="btn btn-small" data-bind="enable: is_operational() && !is_printing(), click: function() { gotoposition('target'); }">Move to Target</button>
                 <button style="margin-right: 10px;" class="btn btn-small" data-bind="enable: is_operational() && !is_printing() && vMin() != null, click: function() { gotoposition('min'); }">Move to Min</button>
                 <button style="margin-right: 10px;" class="btn btn-small" data-bind="enable: is_operational() && !is_printing() && vMax() != null, click: function() { gotoposition('max'); }">Move to Max</button>
-                <button style="margin-right: 10px;" class="btn btn-small laser" data-bind="visible: laser_mode(), enable: laser_mode(), click: function() {}">Weak Laser</button>
+                <button style="margin-right: 10px;" class="btn btn-small laser" data-bind="visible: laser_mode(), enable: laser_mode(), click: function() { toggleWeak() }">Weak Laser</button>
             </div>
         </div>
         <!-- ── Custom Line Layout (laser only) ──────────────────── -->
